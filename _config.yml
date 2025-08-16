@@ -1,0 +1,7 @@
+title: GamersInfo
+description: The gaming site you need to know
+markdown: kramdown
+collections:
+  reviews:
+    output: true
+permalink: pretty
