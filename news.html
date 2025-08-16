@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>News | GamersInfo</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  
+  <header id="site-header" class="site-header">
+    <div class="container header-inner">
+      <h1 class="logo"><a href="./index.html" aria-label="GamersInfo home">GamersInfo</a></h1>
+      <button id="nav-toggle" class="nav-toggle" aria-expanded="false" aria-controls="primary-nav" aria-label="Toggle navigation">
+        <span class="bar"></span><span class="bar"></span><span class="bar"></span>
+      </button>
+      <nav id="primary-nav" class="nav" aria-label="Primary">
+        <ul>
+          <li><a href="./index.html#home">Home</a></li>
+          <li><a href="./news.html">News</a></li>
+          <li><a href="./reviews.html">Reviews</a></li>
+          <li><a href="./index.html#forums">Forums</a></li>
+          <li><a class="btn btn-primary" href="./register.html">Sign up</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main class="section" id="home" aria-labelledby="news-page-title">
+    <div class="container">
+      <h2 id="news-page-title">Latest News</h2>
+      <p class="muted">Curated headlines and quick reads.</p>
+
+      <article id="fall-releases" class="card">
+        <h3>Big fall releases: what to expect</h3>
+        <p>With blockbuster season approaching, here are the launches to watch, and the genres set to dominate.</p>
+        <a class="card-link" href="#home">Back to top</a>
+      </article>
+
+      <article id="indie-gems" class="card">
+        <h3>Indie spotlight: five hidden gems</h3>
+        <p>Small teams, big ideas. These five titles punch above their weight without demanding 100 hours.</p>
+        <a class="card-link" href="#home">Back to top</a>
+      </article>
+
+      <article id="hardware-watch" class="card">
+        <h3>Hardware watch: should you upgrade?</h3>
+        <p>From GPUs to handhelds, we distill real-world gains so you can decide if it's worth the jump.</p>
+        <a class="card-link" href="#home">Back to top</a>
+      </article>
+    </div>
+  </main>
+  
+  <footer class="site-footer">
+    <div class="container">
+      <p>© 2025 GamersInfo. All rights reserved.</p>
+      <a href="#home" class="to-top">Back to top ↑</a>
+    </div>
+  </footer>
+
+  <script src="./script.js"></script>
+</body>
+</html>
