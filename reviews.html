@@ -1,66 +1,58 @@
+---
+layout: null
+title: Reviews
+---
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Reviews | GamersInfo</title>
-  <link rel="stylesheet" href="./styles.css" />
+  <link rel="stylesheet" href="{{ '/styles.css' | relative_url }}" />
 </head>
 <body>
-  
+
   <header id="site-header" class="site-header">
     <div class="container header-inner">
-      <h1 class="logo"><a href="./index.html" aria-label="GamersInfo home">GamersInfo</a></h1>
+      <h1 class="logo"><a href="{{ '/' | relative_url }}" aria-label="GamersInfo home">GamersInfo</a></h1>
       <button id="nav-toggle" class="nav-toggle" aria-expanded="false" aria-controls="primary-nav" aria-label="Toggle navigation">
         <span class="bar"></span><span class="bar"></span><span class="bar"></span>
       </button>
       <nav id="primary-nav" class="nav" aria-label="Primary">
         <ul>
-          <li><a href="./index.html#home">Home</a></li>
-          <li><a href="./news.html">News</a></li>
-          <li><a href="./reviews.html">Reviews</a></li>
-          <li><a href="./index.html#forums">Forums</a></li>
-          <li><a class="btn btn-primary" href="./register.html">Sign up</a></li>
+          <li><a href="{{ '/' | relative_url }}#home">Home</a></li>
+          <li><a href="{{ '/news.html' | relative_url }}">News</a></li>
+          <li><a href="{{ '/reviews.html' | relative_url }}">Reviews</a></li>
+          <li><a href="{{ '/' | relative_url }}#forums">Forums</a></li>
+          <li><a class="btn btn-primary" href="{{ '/register.html' | relative_url }}">Sign up</a></li>
         </ul>
       </nav>
     </div>
   </header>
-
   <main class="section" id="home" aria-labelledby="reviews-page-title">
     <div class="container">
       <h2 id="reviews-page-title">Honest Reviews</h2>
-      <p class="muted">No fluff. Just the good stuff (and the bad).</p>
+      <p class="muted">Add new reviews by dropping Markdown files in <code>_reviews/</code>. No HTML edits needed.</p>
 
-      <article id="space-raiders" class="card">
-        <h3>Space Raiders</h3>
-        <p><strong>Verdict:</strong> Fast, flashy, and surprisingly deep. A must for score-chasers.</p>
-        <p>Responsive controls, readable effects, and a soundtrack that slaps. Loses a point for a thin story.</p>
-        <a class="card-link" href="#home">Back to top</a>
-      </article>
-
-      <article id="cozy-valley" class="card">
-        <h3>Cozy Valley</h3>
-        <p><strong>Verdict:</strong> Wholesome vibes and smart progression. Great with a cup of tea.</p>
-        <p>Tasks respect your time. Performance is solid on mid-range hardware; a few minor UI quirks remain.</p>
-        <a class="card-link" href="#home">Back to top</a>
-      </article>
-
-      <article id="dungeon-decks" class="card">
-        <h3>Dungeon Decks</h3>
-        <p><strong>Verdict:</strong> Card-battling meets roguelite dungeons. Tough but fair.</p>
-        <p>Build variety is excellent; balance patches have tightened difficulty spikes.</p>
-        <a class="card-link" href="#home">Back to top</a>
-      </article>
+      <div class="cards">
+        {% assign items = site.reviews | sort: 'date' | reverse %}
+        {% for r in items %}
+          <article class="card">
+            <h3><a href="{{ r.url | relative_url }}">{{ r.title }}</a></h3>
+            {% if r.summary %}<p>{{ r.summary }}</p>{% endif %}
+            <p class="muted">{{ r.date | date: "%-d %b %Y" }}{% if r.platform %} · {{ r.platform }}{% endif %}{% if r.score %} · ★ {{ r.score }}/10{% endif %}</p>
+          </article>
+        {% endfor %}
+      </div>
     </div>
   </main>
-  
+
   <footer class="site-footer">
     <div class="container">
       <p>© 2025 GamersInfo. All rights reserved.</p>
       <a href="#home" class="to-top">Back to top ↑</a>
     </div>
   </footer>
-
-  <script src="./script.js"></script>
+  <script src="{{ '/script.js' | relative_url }}"></script>
 </body>
 </html>
