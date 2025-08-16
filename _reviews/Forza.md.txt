@@ -1,0 +1,18 @@
+---
+title: Forza4
+date: 2025-08-15
+platform: PC/PS5/Xbox
+summary: Fast, flashy, and surprisingly deep — arcade bliss for score-chasers.
+score: 9
+verdict: A tight shooter with perfect feedback loops and crunchy sound.
+cover: /images/space-raiders-cover.jpg
+layout: review
+---
+
+## The Good
+- Ultra-responsive controls and crisp hit feedback.
+- Enemy patterns scale skillfully without feeling cheap.
+
+## The Not-so-good
+- Story is paper-thin.
+- Needs one more boss for late-game variety.
