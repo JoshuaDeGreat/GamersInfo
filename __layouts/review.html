@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{ page.title }} | Reviews | GamersInfo</title>
+  <link rel="stylesheet" href="{{ '/styles.css' | relative_url }}" />
+</head>
+<body>
+
+  <header id="site-header" class="site-header">
+    <div class="container header-inner">
+      <h1 class="logo"><a href="{{ '/' | relative_url }}" aria-label="GamersInfo home">GamersInfo</a></h1>
+      <button id="nav-toggle" class="nav-toggle" aria-expanded="false" aria-controls="primary-nav" aria-label="Toggle navigation">
+        <span class="bar"></span><span class="bar"></span><span class="bar"></span>
+      </button>
+      <nav id="primary-nav" class="nav" aria-label="Primary">
+        <ul>
+          <li><a href="{{ '/' | relative_url }}#home">Home</a></li>
+          <li><a href="{{ '/news.html' | relative_url }}">News</a></li>
+          <li><a href="{{ '/reviews.html' | relative_url }}">Reviews</a></li>
+          <li><a href="{{ '/' | relative_url }}#forums">Forums</a></li>
+          <li><a class="btn btn-primary" href="{{ '/register.html' | relative_url }}">Sign up</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+  <main class="section" id="home" aria-labelledby="review-title">
+    <div class="container">
+      <article class="card">
+        <h2 id="review-title">{{ page.title }}</h2>
+        <p class="muted">{{ page.date | date: "%-d %b %Y" }}{% if page.platform %} · {{ page.platform }}{% endif %}</p>
+        {% if page.cover %}<img src="{{ page.cover | relative_url }}" alt="" style="width:100%;border-radius:12px;margin:10px 0 14px;"/>{% endif %}
+        {% if page.score %}<p><strong>Score:</strong> {{ page.score }}/10</p>{% endif %}
+        {% if page.verdict %}<p><strong>Verdict:</strong> {{ page.verdict }}</p>{% endif %}
+        <div class="content">
+          {{ content }}
+        </div>
+        <p style="margin-top:16px;"><a class="card-link" href="{{ '/reviews.html' | relative_url }}">← Back to all reviews</a></p>
+      </article>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container">
+      <p>© 2025 GamersInfo. All rights reserved.</p>
+      <a href="#home" class="to-top">Back to top ↑</a>
+    </div>
+  </footer>
+  <script src="{{ '/script.js' | relative_url }}"></script>
+</body>
+</html>
