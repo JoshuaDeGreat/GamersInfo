@@ -1,0 +1,24 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>X4 Foundations Save Editor</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <button id="importBtn">Import Save</button>
+      <button id="undoBtn">Undo</button>
+      <button id="redoBtn">Redo</button>
+      <input id="globalSearch" placeholder="Global search" />
+      <span id="saveMeta">No save loaded</span>
+    </header>
+    <div class="layout">
+      <nav id="tabs" class="tabs"></nav>
+      <main id="main"></main>
+    </div>
+    <footer class="status" id="status">Ready</footer>
+    <script src="app.js"></script>
+  </body>
+</html>

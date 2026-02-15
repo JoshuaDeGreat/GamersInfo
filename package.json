@@ -1,0 +1,14 @@
+{
+  "name": "x4-foundations-save-editor",
+  "version": "1.0.0",
+  "description": "Offline Electron save editor for X4 Foundations (.xml/.xml.gz)",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "electron": "^31.0.2",
+    "sax": "^1.4.1"
+  }
+}
