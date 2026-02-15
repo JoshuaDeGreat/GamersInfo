@@ -1,0 +1,22 @@
+[
+  {
+    "id": "argon",
+    "name": "Argon Federation"
+  },
+  {
+    "id": "paranid",
+    "name": "Holy Order"
+  },
+  {
+    "id": "teladi",
+    "name": "Teladi Company"
+  },
+  {
+    "id": "split",
+    "name": "Split"
+  },
+  {
+    "id": "terran",
+    "name": "Terran Protectorate"
+  }
+]
