@@ -15,3 +15,5 @@ main{padding:16px;overflow:auto}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .pill{background:#1e293b;border-radius:12px;padding:2px 8px;font-size:12px}
 .danger{border-color:var(--danger);color:#fecaca}
+
+button:disabled{opacity:.45;cursor:not-allowed}
