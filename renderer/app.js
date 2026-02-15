@@ -13,10 +13,22 @@ const main = document.getElementById('main');
 const statusEl = document.getElementById('status');
 
 function setStatus(message) { statusEl.textContent = message; }
+
+function hasModelLoaded() {
+  return Boolean(state.model);
+}
+
+function requireModelLoaded(actionLabel) {
+  if (hasModelLoaded()) return true;
+  setStatus(`Import a save before using ${actionLabel}.`);
+  return false;
+}
+
 function pushPatch(patch) {
   state.undo.push(structuredClone(state.patches));
   state.redo = [];
   state.patches.push(patch);
+  setStatus(`Queued patch: ${patch.type}`);
   render();
 }
 
@@ -44,8 +56,12 @@ function renderOverview() {
 
 function renderCredits() {
   const accounts = state.model?.accounts || [];
-  return `<div class='card'><h3>Credits / Accounts</h3><p>Found ${accounts.length} accounts.</p>
-    <input id='playerCredits' type='number' min='0' placeholder='Player credits' />
+  const playerAccounts = accounts.filter((a) => (a.owner || '').toLowerCase() === 'player');
+  const playerCredits = playerAccounts.reduce((sum, account) => sum + Number(account.money || 0), 0);
+  return `<div class='card'><h3>Credits / Accounts</h3>
+    <p>Found ${accounts.length} accounts.</p>
+    <p><strong>Player credits currently in save:</strong> ${playerCredits.toLocaleString()} (${playerAccounts.length} player account${playerAccounts.length === 1 ? '' : 's'})</p>
+    <input id='playerCredits' type='number' min='0' placeholder='Player credits' value='${playerCredits}' />
     <button id='setPlayerCredits'>Set Player Credits</button>
     <button id='setAllAccounts'>Set All Owned Accounts</button>
   </div>` + rowTable(['ID','Owner','Money'], accounts.slice(0,300).map(a=>`<tr><td>${a.id}</td><td>${a.owner}</td><td>${a.money}</td></tr>`));
@@ -61,27 +77,36 @@ function renderRelations() {
 
 function renderSkills() {
   const npcs = state.model?.npcs || [];
+  const disabled = npcs.length === 0 ? 'disabled' : '';
   return `<div class='card'><h3>Crew Skills</h3>
-  <button id='pilots5'>Set all pilots to 5★ piloting</button>
-  <button id='managers5'>Set all managers to 5★ management</button>
-  <button id='morale5'>Set morale 5★ all</button>
+  <button id='pilots5' ${disabled}>Set all pilots to 5★ piloting</button>
+  <button id='managers5' ${disabled}>Set all managers to 5★ management</button>
+  <button id='morale5' ${disabled}>Set morale 5★ all</button>
   </div>` + rowTable(['Name','Role','Owner','Piloting','Management','Morale'], npcs.slice(0,1000).map(n=>`<tr><td>${n.name}</td><td>${n.role}</td><td>${n.owner}</td><td>${n.skills.piloting||0}</td><td>${n.skills.management||0}</td><td>${n.skills.morale||0}</td></tr>`));
 }
 
 function renderBlueprints() {
   const b = state.model?.blueprints || [];
+  const disabled = b.length === 0 ? 'disabled' : '';
   return `<div class='card'><h3>Blueprints</h3>
-  <button data-unlock='station'>Unlock station modules</button>
-  <button data-unlock='ship'>Unlock ship blueprints</button>
-  <button data-unlock='equipment'>Unlock equipment</button>
-  <button data-unlock='all'>Unlock everything</button>
+  <button data-unlock='station' ${disabled}>Unlock station modules</button>
+  <button data-unlock='ship' ${disabled}>Unlock ship blueprints</button>
+  <button data-unlock='equipment' ${disabled}>Unlock equipment</button>
+  <button data-unlock='all' ${disabled}>Unlock everything</button>
   </div>` + rowTable(['Blueprint','Category','Unlocked'], b.slice(0,1500).map(x=>`<tr><td>${x.id}</td><td>${x.category}</td><td>${x.unlocked}</td></tr>`));
 }
 
 function renderInventory() {
   const inv = state.model?.inventory || [];
+  const dictionaryItems = state.dictionaries?.items || [];
+  const knownItemIds = [...new Set([...dictionaryItems.map((item) => item.id), ...inv.map((item) => item.itemId)])].sort();
+  const itemSuggestions = knownItemIds.slice(0, 500).map((id) => `<option value='${id}'></option>`).join('');
+
   return `<div class='card'><h3>Inventory</h3>
-    <input id='itemId' placeholder='item id' /><input id='itemAmount' type='number' min='0' placeholder='amount' />
+    <p>You can type an item ID manually, or pick from known IDs in the dropdown suggestions.</p>
+    <input id='itemId' list='itemIds' placeholder='item id' />
+    <datalist id='itemIds'>${itemSuggestions}</datalist>
+    <input id='itemAmount' type='number' min='0' placeholder='amount' />
     <button id='setItem'>Set item amount</button>
   </div>` + rowTable(['Item','Amount'], inv.map(i=>`<tr><td>${i.itemId}</td><td>${i.amount}</td></tr>`));
 }
@@ -122,14 +147,33 @@ function wireEvents() {
     pushPatch({ type: 'SetCredits', scope: 'allOwnedAccounts', value });
   });
   document.querySelectorAll('input[data-faction]').forEach((el)=>el.addEventListener('change', ()=>pushPatch({type:'SetFactionRep', factionId: el.dataset.faction, rep:Number(el.value)})));
-  document.querySelectorAll('button[data-bulk]').forEach((btn)=>btn.addEventListener('click', ()=>replacePatches([...state.patches, ...state.model.relations.map(r=>({type:'SetFactionRep', factionId:r.factionId, rep:Number(btn.dataset.bulk)}))])));
-  document.querySelector('#pilots5')?.addEventListener('click', ()=>pushPatch({type:'SetSkills', filter:{role:'pilot'}, changes:{piloting:5}}));
-  document.querySelector('#managers5')?.addEventListener('click', ()=>pushPatch({type:'SetSkills', filter:{role:'manager'}, changes:{management:5}}));
-  document.querySelector('#morale5')?.addEventListener('click', ()=>pushPatch({type:'SetSkills', filter:{role:'all'}, changes:{morale:5}}));
+  document.querySelectorAll('button[data-bulk]').forEach((btn)=>btn.addEventListener('click', ()=>{
+    if (!requireModelLoaded('bulk relation actions')) return;
+    replacePatches([...state.patches, ...state.model.relations.map(r=>({type:'SetFactionRep', factionId:r.factionId, rep:Number(btn.dataset.bulk)}))]);
+    setStatus('Queued bulk relation patches');
+  }));
+  document.querySelector('#pilots5')?.addEventListener('click', ()=>{
+    if (!requireModelLoaded('crew skill actions')) return;
+    pushPatch({type:'SetSkills', filter:{role:'pilot'}, changes:{piloting:5}});
+  });
+  document.querySelector('#managers5')?.addEventListener('click', ()=>{
+    if (!requireModelLoaded('crew skill actions')) return;
+    pushPatch({type:'SetSkills', filter:{role:'manager'}, changes:{management:5}});
+  });
+  document.querySelector('#morale5')?.addEventListener('click', ()=>{
+    if (!requireModelLoaded('crew skill actions')) return;
+    pushPatch({type:'SetSkills', filter:{role:'all'}, changes:{morale:5}});
+  });
   document.querySelectorAll('button[data-unlock]').forEach((btn)=>btn.addEventListener('click', ()=>{
+    if (!requireModelLoaded('blueprint actions')) return;
     const kind = btn.dataset.unlock;
     const ids = state.model.blueprints.filter((b)=>kind==='all'||b.category===kind).map((b)=>b.id);
+    if (ids.length === 0) {
+      setStatus(`No blueprints found for category: ${kind}`);
+      return;
+    }
     pushPatch({type:'UnlockBlueprints', blueprintIds:ids});
+    setStatus(`Queued unlock for ${ids.length} blueprint(s)`);
   }));
   document.querySelector('#setItem')?.addEventListener('click', ()=>pushPatch({type:'SetInventoryItem', itemId:document.querySelector('#itemId').value, amount:Number(document.querySelector('#itemAmount').value)}));
   document.querySelectorAll('button[data-owner]').forEach((btn)=>btn.addEventListener('click', ()=>{
@@ -176,5 +220,5 @@ document.getElementById('importBtn').onclick = async () => {
   render();
 };
 
-window.x4api.loadDictionaries().then((dict) => { state.dictionaries = dict; setStatus('Dictionaries loaded'); });
+window.x4api.loadDictionaries().then((dict) => { state.dictionaries = dict; setStatus('Dictionaries loaded'); render(); });
 render();
