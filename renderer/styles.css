@@ -16,3 +16,8 @@ main{padding:16px;overflow:auto}.card{background:var(--panel);padding:12px;borde
 .licence-layout{display:grid;grid-template-columns:260px 1fr;gap:12px}
 .licence-factions{display:flex;flex-direction:column;gap:6px}
 .licence-row{display:flex;gap:8px;padding:6px 0;align-items:center}
+
+.licence-catalog-list{display:flex;flex-direction:column;gap:8px;max-height:280px;overflow:auto;border:1px solid #1f2937;border-radius:8px;padding:8px;margin-top:8px}
+.licence-catalog-row{display:flex;justify-content:space-between;align-items:center;gap:8px;border-bottom:1px solid #1f2937;padding:6px 0}
+.licence-catalog-row:last-child{border-bottom:none}
+.muted{opacity:.8;font-size:12px}

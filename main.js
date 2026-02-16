@@ -61,19 +61,33 @@ ipcMain.handle('save:export', async (_event, payload) => {
 });
 
 ipcMain.handle('dict:load', async () => {
-  const base = app.getAppPath();
-  const [factionsById, blueprints, items, modpartsPreset, helpText] = await Promise.all([
-    fs.readFile(path.join(base, 'assets', 'dicts', 'factions.json'), 'utf8'),
-    fs.readFile(path.join(base, 'assets', 'dicts', 'blueprints.json'), 'utf8'),
-    fs.readFile(path.join(base, 'assets', 'dicts', 'items.json'), 'utf8'),
-    fs.readFile(path.join(base, 'assets', 'presets', 'modparts.json'), 'utf8'),
-    fs.readFile(path.join(base, 'docs', 'cheats-savegame-editing.md'), 'utf8')
+  const roots = Array.from(new Set([app.getAppPath(), process.resourcesPath].filter(Boolean)));
+  const readFromAppRoots = async (...segments) => {
+    const errors = [];
+    for (const root of roots) {
+      try {
+        return await fs.readFile(path.join(root, ...segments), 'utf8');
+      } catch (error) {
+        errors.push(error);
+      }
+    }
+    throw errors[0];
+  };
+
+  const [factionsById, blueprints, items, licenceTypes, modpartsPreset, helpText] = await Promise.all([
+    readFromAppRoots('assets', 'dicts', 'factions.json'),
+    readFromAppRoots('assets', 'dicts', 'blueprints.json'),
+    readFromAppRoots('assets', 'dicts', 'items.json'),
+    readFromAppRoots('assets', 'dicts', 'licence-types.json'),
+    readFromAppRoots('assets', 'presets', 'modparts.json'),
+    readFromAppRoots('docs', 'cheats-savegame-editing.md')
   ]);
 
   return {
     factionsById: JSON.parse(factionsById),
     blueprints: JSON.parse(blueprints),
     items: JSON.parse(items),
+    licenceTypes: JSON.parse(licenceTypes).types || [],
     presets: { modparts: JSON.parse(modpartsPreset) },
     helpText
   };

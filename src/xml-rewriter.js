@@ -224,13 +224,20 @@ async function exportPatchedSave({ sourcePath, outputPath, patches, compress = t
       if (n === 'licences' && inPlayerLicences) {
         for (const [typeName, factionsSet] of normalized.licenceOps.addTypes.entries()) {
           if (!seenLicenceTypes.has(typeName) && !normalized.licenceOps.removeTypes.has(typeName)) {
-            output.write(`<licence type="${esc(typeName)}" factions="${esc(stringifyFactionList(Array.from(factionsSet)))}"></licence>`);
+            const factions = new Set(factionsSet);
+            if (normalized.licenceOps.addFactionsByType.has(typeName)) {
+              normalized.licenceOps.addFactionsByType.get(typeName).forEach((id) => factions.add(id));
+            }
+            if (normalized.licenceOps.removeFactionsByType.has(typeName)) {
+              normalized.licenceOps.removeFactionsByType.get(typeName).forEach((id) => factions.delete(id));
+            }
+            output.write(`<licence type="${esc(typeName)}" factions="${esc(stringifyFactionList(Array.from(factions)))}"/>`);
             stats.licencesInserted += 1;
           }
         }
         for (const [typeName, addSet] of normalized.licenceOps.addFactionsByType.entries()) {
-          if (!seenLicenceTypes.has(typeName) && !normalized.licenceOps.removeTypes.has(typeName)) {
-            output.write(`<licence type="${esc(typeName)}" factions="${esc(stringifyFactionList(Array.from(addSet)))}"></licence>`);
+          if (!seenLicenceTypes.has(typeName) && !normalized.licenceOps.removeTypes.has(typeName) && !normalized.licenceOps.addTypes.has(typeName)) {
+            output.write(`<licence type="${esc(typeName)}" factions="${esc(stringifyFactionList(Array.from(addSet)))}"/>`);
             stats.licencesInserted += 1;
           }
         }
@@ -244,14 +251,21 @@ async function exportPatchedSave({ sourcePath, outputPath, patches, compress = t
 
           for (const [typeName, addSet] of normalized.licenceOps.addFactionsByType.entries()) {
             if (normalized.licenceOps.removeTypes.has(typeName)) continue;
-            output.write(`<licence type="${esc(typeName)}" factions="${esc(stringifyFactionList(Array.from(addSet)))}"></licence>`);
+            output.write(`<licence type="${esc(typeName)}" factions="${esc(stringifyFactionList(Array.from(addSet)))}"/>`);
             createdTypes.add(typeName);
             stats.licencesInserted += 1;
           }
 
           for (const [typeName, factionsSet] of normalized.licenceOps.addTypes.entries()) {
             if (createdTypes.has(typeName) || normalized.licenceOps.removeTypes.has(typeName)) continue;
-            output.write(`<licence type="${esc(typeName)}" factions="${esc(stringifyFactionList(Array.from(factionsSet)))}"></licence>`);
+            const factions = new Set(factionsSet);
+            if (normalized.licenceOps.addFactionsByType.has(typeName)) {
+              normalized.licenceOps.addFactionsByType.get(typeName).forEach((id) => factions.add(id));
+            }
+            if (normalized.licenceOps.removeFactionsByType.has(typeName)) {
+              normalized.licenceOps.removeFactionsByType.get(typeName).forEach((id) => factions.delete(id));
+            }
+            output.write(`<licence type="${esc(typeName)}" factions="${esc(stringifyFactionList(Array.from(factions)))}"/>`);
             stats.licencesInserted += 1;
           }
 

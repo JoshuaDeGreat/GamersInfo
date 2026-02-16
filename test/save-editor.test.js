@@ -207,7 +207,7 @@ test('creates licences block when missing in player faction', async () => {
   });
 
   const edited = fs.readFileSync(outputPath, 'utf8');
-  assert.match(edited, /<faction id="player">[\s\S]*<licences><licence type="station_gen_basic" factions="argon"><\/licence><\/licences><\/faction>/);
+  assert.match(edited, /<faction id="player">[\s\S]*<licences><licence type="station_gen_basic" factions="argon"\/><\/licences><\/faction>/);
 
   fs.rmSync(dir, { recursive: true, force: true });
 });
@@ -226,6 +226,99 @@ test('licence edits fail when player faction is missing', async () => {
     compress: false,
     createBackup: false
   }), /Cannot edit licences/);
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+
+test('AddLicenceType inserts self-closing empty-factions licence in existing licences block', async () => {
+  const xml = `<?xml version="1.0"?><savegame><factions><faction id="player"><licences><licence type="station_gen_basic" factions="paranid"></licence></licences></faction></factions></savegame>`;
+  const dir = fs.mkdtempSync(path.join(process.cwd(), 'tmp-x4-'));
+  const xmlPath = path.join(dir, 'catalog-a.xml');
+  fs.writeFileSync(xmlPath, xml);
+  const outputPath = path.join(dir, 'catalog-a-out.xml');
+
+  await exportPatchedSave({
+    sourcePath: xmlPath,
+    outputPath,
+    patches: [{ type: 'AddLicenceType', typeName: 'capitalship', factions: [] }],
+    compress: false,
+    createBackup: false
+  });
+
+  const edited = fs.readFileSync(outputPath, 'utf8');
+  assert.match(edited, /<licences>[\s\S]*<licence type="capitalship" factions=""\/>[\s\S]*<\/licences>/);
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('AddLicenceType inserts licences block when missing on player faction', async () => {
+  const xml = `<?xml version="1.0"?><savegame><factions><faction id="player"><account id="[0x1]" amount="10"></account></faction></factions></savegame>`;
+  const dir = fs.mkdtempSync(path.join(process.cwd(), 'tmp-x4-'));
+  const xmlPath = path.join(dir, 'catalog-b.xml');
+  fs.writeFileSync(xmlPath, xml);
+  const outputPath = path.join(dir, 'catalog-b-out.xml');
+
+  await exportPatchedSave({
+    sourcePath: xmlPath,
+    outputPath,
+    patches: [{ type: 'AddLicenceType', typeName: 'capitalship', factions: [] }],
+    compress: false,
+    createBackup: false
+  });
+
+  const edited = fs.readFileSync(outputPath, 'utf8');
+  assert.match(edited, /<faction id="player">[\s\S]*<licences><licence type="capitalship" factions=""\/><\/licences><\/faction>/);
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('AddLicenceFaction and RemoveLicenceFaction update inserted type factions list', async () => {
+  const xml = `<?xml version="1.0"?><savegame><factions><faction id="player"><licences></licences></faction></factions></savegame>`;
+  const dir = fs.mkdtempSync(path.join(process.cwd(), 'tmp-x4-'));
+  const xmlPath = path.join(dir, 'catalog-factions.xml');
+  fs.writeFileSync(xmlPath, xml);
+  const outputPath = path.join(dir, 'catalog-factions-out.xml');
+
+  await exportPatchedSave({
+    sourcePath: xmlPath,
+    outputPath,
+    patches: [
+      { type: 'AddLicenceType', typeName: 'capitalship', factions: [] },
+      { type: 'AddLicenceFaction', typeName: 'capitalship', factionId: 'argon' },
+      { type: 'AddLicenceFaction', typeName: 'capitalship', factionId: 'teladi' },
+      { type: 'RemoveLicenceFaction', typeName: 'capitalship', factionId: 'argon' }
+    ],
+    compress: false,
+    createBackup: false
+  });
+
+  const edited = fs.readFileSync(outputPath, 'utf8');
+  assert.match(edited, /<licence type="capitalship" factions="teladi"\/>/);
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('adding same licence type twice does not duplicate nodes', async () => {
+  const xml = `<?xml version="1.0"?><savegame><factions><faction id="player"><licences></licences></faction></factions></savegame>`;
+  const dir = fs.mkdtempSync(path.join(process.cwd(), 'tmp-x4-'));
+  const xmlPath = path.join(dir, 'catalog-idempotent.xml');
+  fs.writeFileSync(xmlPath, xml);
+  const outputPath = path.join(dir, 'catalog-idempotent-out.xml');
+
+  await exportPatchedSave({
+    sourcePath: xmlPath,
+    outputPath,
+    patches: [
+      { type: 'AddLicenceType', typeName: 'capitalship', factions: [] },
+      { type: 'AddLicenceType', typeName: 'capitalship', factions: [] }
+    ],
+    compress: false,
+    createBackup: false
+  });
+
+  const edited = fs.readFileSync(outputPath, 'utf8');
+  assert.equal((edited.match(/<licence type="capitalship" factions=""\/>/g) || []).length, 1);
 
   fs.rmSync(dir, { recursive: true, force: true });
 });
