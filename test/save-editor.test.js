@@ -411,3 +411,49 @@ test('SetFactionRep inserts missing reverse and player relation nodes', async ()
 
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+test('indexer extracts save metadata and extensions from info block', async () => {
+  const fixturePath = path.join(process.cwd(), 'test', 'fixtures', 'save-info.xml');
+  const model = await buildIndex(fixturePath);
+
+  assert.equal(model.metadata.saveName, '#002');
+  assert.equal(model.metadata.saveDate, '1771111771');
+  assert.equal(model.metadata.gameVersion, '800');
+  assert.equal(model.metadata.gameBuild, '590967');
+  assert.equal(model.metadata.modified, true);
+  assert.equal(model.metadata.guid, '161925A7-6EBC-4535-8AD9-440834D2DEDE');
+  assert.equal(model.metadata.playerName, 'Juro Topeka');
+  assert.deepEqual(model.metadata.extensions.active, [
+    { id: 'ego_dlc_mini_02', version: '800', name: 'Envoy Pack' },
+    { id: 'ego_dlc_mini_01', version: '800', name: 'Hyperion Pack' }
+  ]);
+  assert.deepEqual(model.metadata.extensions.history, [
+    { id: 'ego_dlc_mini_02', version: '800', name: 'Envoy Pack' }
+  ]);
+});
+
+test('rewriter SetPlayerName and SetModifiedFlag patch only info attributes', async () => {
+  const dir = fs.mkdtempSync(path.join(process.cwd(), 'tmp-x4-'));
+  const fixturePath = path.join(process.cwd(), 'test', 'fixtures', 'save-info.xml');
+  const outputPath = path.join(dir, 'metadata-out.xml');
+
+  await exportPatchedSave({
+    sourcePath: fixturePath,
+    outputPath,
+    patches: [
+      { type: 'SetPlayerName', name: 'Captain Boso' },
+      { type: 'SetModifiedFlag', value: 0 }
+    ],
+    compress: false,
+    createBackup: false
+  });
+
+  const edited = fs.readFileSync(outputPath, 'utf8');
+  assert.match(edited, /<info>[\s\S]*<player name="Captain Boso"/);
+  assert.match(edited, /<info>[\s\S]*<game[^>]*modified="0"/);
+  assert.equal((edited.match(/name="Captain Boso"/g) || []).length, 1);
+  assert.equal((edited.match(/modified="0"/g) || []).length, 1);
+  await parseXmlString(edited);
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});

@@ -21,3 +21,6 @@ main{padding:16px;overflow:auto}.card{background:var(--panel);padding:12px;borde
 .licence-catalog-row{display:flex;justify-content:space-between;align-items:center;gap:8px;border-bottom:1px solid #1f2937;padding:6px 0}
 .licence-catalog-row:last-child{border-bottom:none}
 .muted{opacity:.8;font-size:12px}
+
+.topbar span{font-size:12px;opacity:.9}
+.badge{display:inline-block;padding:2px 8px;border:1px solid #334155;border-radius:999px;background:#0b1220}

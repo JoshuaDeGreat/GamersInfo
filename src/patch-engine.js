@@ -84,6 +84,17 @@ function validatePatch(patch) {
       if (!Number.isInteger(patch.amount) || patch.amount < 0) throw new Error(`${patch.type}.amount must be integer >= 0`);
       break;
     }
+    case 'SetPlayerName': {
+      if (typeof patch.name !== 'string') throw new Error('SetPlayerName.name must be a string');
+      const name = patch.name.trim();
+      if (!name) throw new Error('SetPlayerName.name must be non-empty');
+      if (name.length > 64) throw new Error('SetPlayerName.name must be 1-64 chars');
+      break;
+    }
+    case 'SetModifiedFlag': {
+      if (!(patch.value === 0 || patch.value === 1)) throw new Error('SetModifiedFlag.value must be 0 or 1');
+      break;
+    }
     default:
       throw new Error(`Unsupported patch type: ${patch.type}`);
   }
@@ -100,7 +111,9 @@ function normalizePatchList(patches = []) {
       addTypes: new Map(),
       removeTypes: new Set()
     },
-    inventoryOps: new Map()
+    inventoryOps: new Map(),
+    setPlayerName: null,
+    setModifiedFlag: null
   };
 
   for (const patch of patches) {
@@ -150,6 +163,12 @@ function normalizePatchList(patches = []) {
         normalized.inventoryOps.set(patch.ware, current);
         break;
       }
+      case 'SetPlayerName':
+        normalized.setPlayerName = patch.name.trim();
+        break;
+      case 'SetModifiedFlag':
+        normalized.setModifiedFlag = patch.value;
+        break;
       default:
         break;
     }

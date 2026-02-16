@@ -21,12 +21,29 @@ function setStatus(text) { document.getElementById('statusText').textContent = t
 function hasUnsaved() { return state.patches.length > 0; }
 function hasPlayerFaction() { return Boolean(state.model?.licencesModel?.playerFactionFound); }
 
+function xmlEscape(v) { return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
+function currentMetadataPatches() {
+  const playerName = [...state.patches].reverse().find((p) => p.type === 'SetPlayerName');
+  const modified = [...state.patches].reverse().find((p) => p.type === 'SetModifiedFlag');
+  return { playerName: playerName?.name ?? null, modified: modified?.value ?? null };
+}
+
 function renderStatusBar() {
   const m = state.model;
-  document.getElementById('statusIndex').textContent = m ? 'Indexed' : 'Indexing: not started';
+  const patchMeta = currentMetadataPatches();
+  const modified = patchMeta.modified ?? m?.metadata?.modified;
+  const activeExtensions = m?.metadata?.extensions?.active || [];
+
+  document.getElementById('statusIndex').textContent = m ? 'Indexed: ✅' : 'Indexing: not started';
   document.getElementById('statusMeta').textContent = m ? `${m.metadata.saveName || '(unknown)'} · ${m.metadata.saveDate || ''}` : 'No save';
   document.getElementById('statusWarnings').textContent = `Warnings: ${m ? 1 : 0}`;
+  document.getElementById('statusExtensions').textContent = m ? `Extensions detected: ${activeExtensions.length}` : '';
   document.getElementById('statusDirty').textContent = hasUnsaved() ? 'Unsaved changes' : 'No pending changes';
+
+  document.getElementById('topSaveName').textContent = m ? `Save: ${m.metadata.saveName || '(unknown)'}` : '';
+  document.getElementById('topPlayerName').textContent = m ? `Player: ${patchMeta.playerName ?? m.metadata.playerName ?? '(unknown)'}` : '';
+  document.getElementById('topVersion').textContent = m ? `Version/Build: ${m.metadata.gameVersion || '?'} / ${m.metadata.gameBuild || '?'}` : '';
+  document.getElementById('topModified').textContent = m ? `Modified: ${modified === true || modified === 1 ? 'Yes' : modified === false || modified === 0 ? 'No' : '?'}` : '';
 }
 
 function pushPatch(patch) { state.undo.push(structuredClone(state.patches)); state.redo = []; state.patches.push(patch); render(); }
@@ -57,7 +74,30 @@ function warningPanel() {
 function renderOverview() {
   if (!state.model) return '<div class="card">Import an XML/XML.GZ save to start indexing.</div>';
   const m = state.model;
-  return `${warningPanel()}<div class="card"><h3>Save Header</h3><p><strong>Name:</strong> ${m.metadata.saveName || '(unknown)'}</p><p><strong>Date:</strong> ${m.metadata.saveDate || '(unknown)'}</p><p><strong>File:</strong> ${state.sourcePath}</p></div>`;
+  const patchMeta = currentMetadataPatches();
+  const playerName = patchMeta.playerName ?? m.metadata.playerName ?? '';
+  const modifiedValue = patchMeta.modified ?? m.metadata.modified;
+  const modifiedBadge = modifiedValue === true || modifiedValue === 1 ? 'Yes' : modifiedValue === false || modifiedValue === 0 ? 'No' : 'Unknown';
+  const extActive = m.metadata.extensions?.active || [];
+  const extHistory = m.metadata.extensions?.history || [];
+  const extDisplay = extActive.length ? extActive.map((ext) => `${xmlEscape(ext.name || ext.id)} (${xmlEscape(ext.id)})`).join(', ') : 'None detected';
+
+  return `${warningPanel()}<div class="card"><h3>Save Metadata</h3>
+    <p><strong>Save Name:</strong> ${xmlEscape(m.metadata.saveName || '(unknown)')}</p>
+    <p><strong>Save Date:</strong> ${xmlEscape(m.metadata.saveDate || '(unknown)')}</p>
+    <p><strong>File:</strong> ${xmlEscape(state.sourcePath)}</p>
+    <p><strong>Game:</strong> ${xmlEscape(m.metadata.gameId || 'X4')} · <strong>Version/Build:</strong> ${xmlEscape(m.metadata.gameVersion || '?')} / ${xmlEscape(m.metadata.gameBuild || '?')}</p>
+    <p><strong>GUID:</strong> ${xmlEscape(m.metadata.guid || '(unknown)')}</p>
+    <p><strong>Game Time:</strong> ${xmlEscape(m.metadata.time || '(unknown)')}</p>
+    <p><strong>Modified:</strong> <span class="badge">${modifiedBadge}</span></p>
+    <p><strong>DLC detected (active):</strong> ${extDisplay}</p>
+    ${extHistory.length ? `<p class="muted"><strong>DLC history:</strong> ${extHistory.map((ext) => `${xmlEscape(ext.name || ext.id)} (${xmlEscape(ext.id)})`).join(', ')}</p>` : ''}
+    <div class="row"><label>Player Name <input id="playerNameInput" type="text" maxlength="64" value="${xmlEscape(playerName)}" placeholder="Player Name"/></label><button id="queuePlayerName">Queue SetPlayerName</button></div>
+    <details class="card"><summary>Advanced: Modified Flag</summary>
+      <p class="muted">Changing modified flag may not restore online/venture eligibility. Only change if you know what you’re doing.</p>
+      <div class="row"><label><input id="enableModifiedToggle" type="checkbox" ${patchMeta.modified !== null ? 'checked' : ''}/> Set modified flag</label><select id="modifiedSelect" ${patchMeta.modified === null ? 'disabled' : ''}><option value="0" ${(patchMeta.modified ?? (m.metadata.modified ? 1 : 0)) === 0 ? 'selected' : ''}>0</option><option value="1" ${(patchMeta.modified ?? (m.metadata.modified ? 1 : 0)) === 1 ? 'selected' : ''}>1</option></select></div>
+    </details>
+  </div>`;
 }
 
 function filteredBlueprintRows() {
@@ -200,9 +240,10 @@ function renderLicences() {
 }
 
 function groupedPatches() {
-  const groups = { Credits: [], Relations: [], Blueprints: [], Inventory: [], Licences: [] };
+  const groups = { Metadata: [], Credits: [], Relations: [], Blueprints: [], Inventory: [], Licences: [] };
   for (const patch of state.patches) {
-    if (patch.type.includes('Credit')) groups.Credits.push(patch);
+    if (patch.type.includes('PlayerName') || patch.type.includes('ModifiedFlag')) groups.Metadata.push(patch);
+    else if (patch.type.includes('Credit')) groups.Credits.push(patch);
     else if (patch.type.includes('Relation')) groups.Relations.push(patch);
     else if (patch.type.includes('Blueprint')) groups.Blueprints.push(patch);
     else if (patch.type.includes('Inventory')) groups.Inventory.push(patch);
@@ -219,7 +260,7 @@ function renderChanges() {
 function renderExport() {
   const disabled = state.model ? '' : 'disabled';
   const summary = state.exportResult?.summary;
-  return `${warningPanel()}<div class="card"><h3>Export</h3><label><input id="compressOut" type="checkbox" checked> Output .xml.gz</label><br/><label><input id="backupOut" type="checkbox" checked> Create backup</label><br/><button id="exportBtn" ${disabled}>Export patched save</button>${state.exportResult ? `<p>Output: ${state.exportResult.outputPath}</p><p>Credits anchors updated: ${summary.creditsAnchorsUpdated}; Wallet accounts updated: ${summary.walletAccountsUpdated}; Blueprints inserted: ${summary.blueprintsInserted}; Relations inserted: ${summary.relationsInserted}; Boosters deleted: ${summary.boostersDeleted || 0}; Licences inserted: ${summary.licencesInserted}</p>` : ''}</div>`;
+  return `${warningPanel()}<div class="card"><h3>Export</h3><label><input id="compressOut" type="checkbox" checked> Output .xml.gz</label><br/><label><input id="backupOut" type="checkbox" checked> Create backup</label><br/><button id="exportBtn" ${disabled}>Export patched save</button>${state.exportResult ? `<p>Output: ${state.exportResult.outputPath}</p><p>Credits anchors updated: ${summary.creditsAnchorsUpdated}; Wallet accounts updated: ${summary.walletAccountsUpdated}; Blueprints inserted: ${summary.blueprintsInserted}; Relations inserted: ${summary.relationsInserted}; Boosters deleted: ${summary.boostersDeleted || 0}; Licences inserted: ${summary.licencesInserted}; Player names updated: ${summary.playerNamesUpdated || 0}; Modified flags updated: ${summary.modifiedFlagsUpdated || 0}</p>` : ''}</div>`;
 }
 
 function queueInventoryPatch(ware, amount) {
@@ -329,6 +370,29 @@ function wireEvents() {
     pushPatch({ type: 'AddLicenceType', typeName, factions: [] });
   }));
   document.getElementById('resetLicPanel')?.addEventListener('click', resetLicencePanel);
+
+
+  document.getElementById('queuePlayerName')?.addEventListener('click', () => {
+    const value = (document.getElementById('playerNameInput')?.value || '').trim();
+    if (!value || value.length > 64) {
+      setStatus('Player name must be 1-64 characters.');
+      return;
+    }
+    pushPatch({ type: 'SetPlayerName', name: value });
+  });
+  document.getElementById('enableModifiedToggle')?.addEventListener('change', (event) => {
+    const select = document.getElementById('modifiedSelect');
+    if (!select) return;
+    select.disabled = !event.target.checked;
+    if (event.target.checked) {
+      pushPatch({ type: 'SetModifiedFlag', value: Number(select.value) === 1 ? 1 : 0 });
+    }
+  });
+  document.getElementById('modifiedSelect')?.addEventListener('change', (event) => {
+    if (document.getElementById('enableModifiedToggle')?.checked) {
+      pushPatch({ type: 'SetModifiedFlag', value: Number(event.target.value) === 1 ? 1 : 0 });
+    }
+  });
 
   document.getElementById('clearPatches')?.addEventListener('click', resetChanges);
 
