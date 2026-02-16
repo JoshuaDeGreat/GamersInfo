@@ -18,7 +18,7 @@ async function buildIndex(filePath) {
         walletAccountOccurrences: 0
       },
       blueprints: { owned: [] },
-      relations: { player: [], byFaction: {} },
+      relations: { player: [], byFaction: {}, boostersByFaction: {}, playerBoosters: [] },
       licences: [],
       licencesModel: {
         playerFactionFound: false,
@@ -91,6 +91,17 @@ async function buildIndex(filePath) {
         }
       }
 
+      if (name === 'booster' && stack.includes('relations') && currentFactionId) {
+        const faction = String(attrs.faction ?? '');
+        const relation = String(attrs.relation ?? '');
+        const time = String(attrs.time ?? '');
+        if (!model.relations.boostersByFaction[currentFactionId]) model.relations.boostersByFaction[currentFactionId] = [];
+        model.relations.boostersByFaction[currentFactionId].push({ targetFactionId: faction, value: relation, time });
+        if (currentFactionId === 'player') {
+          model.relations.playerBoosters.push({ targetFactionId: faction, value: relation, time });
+        }
+      }
+
       if (name === 'licences' && inPlayerFaction) {
         inPlayerLicences = true;
         model.licencesModel.licencesBlockFound = true;
@@ -160,6 +171,26 @@ async function buildIndex(filePath) {
       model.licencesModel.licencesByType = licencesByType;
       model.licencesModel.allLicenceTypes = sortedTypes;
       model.licencesModel.allFactionsInLicences = Array.from(allFactions).sort();
+
+      const contactFactions = new Set();
+      for (const entry of model.relations.player) {
+        if (entry.targetFactionId) contactFactions.add(entry.targetFactionId);
+      }
+      for (const entry of model.relations.playerBoosters) {
+        if (entry.targetFactionId) contactFactions.add(entry.targetFactionId);
+      }
+      for (const [factionId, relationEntries] of Object.entries(model.relations.byFaction)) {
+        for (const entry of relationEntries) {
+          if (entry.targetFactionId === 'player' && factionId) contactFactions.add(factionId);
+        }
+      }
+      for (const [factionId, boosterEntries] of Object.entries(model.relations.boostersByFaction)) {
+        for (const entry of boosterEntries) {
+          if (entry.targetFactionId === 'player' && factionId) contactFactions.add(factionId);
+        }
+      }
+      model.licencesModel.playerContactFactions = Array.from(contactFactions).filter(Boolean).sort();
+
       resolve(model);
     });
 

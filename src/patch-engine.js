@@ -8,6 +8,11 @@ function repUiToFloatString(repUI) {
   return Number(value.toFixed(6)).toString();
 }
 
+function normalizeRelationMode(mode) {
+  if (mode === 'soft' || mode === 'setBooster') return mode;
+  return 'hard';
+}
+
 function parseFactionList(value = '') {
   return value
     .split(/\s+/)
@@ -42,10 +47,14 @@ function validatePatch(patch) {
       }
       break;
     }
+    case 'SetFactionRep':
     case 'SetFactionRelation': {
       if (typeof patch.factionId !== 'string' || !patch.factionId.trim()) throw new Error('SetFactionRelation.factionId must be non-empty');
       if (typeof patch.repUI !== 'number' || Number.isNaN(patch.repUI) || patch.repUI < -30 || patch.repUI > 30) {
         throw new Error('SetFactionRelation.repUI must be a number in -30..30');
+      }
+      if (patch.mode !== undefined && !['hard', 'soft', 'setBooster'].includes(patch.mode)) {
+        throw new Error('SetFactionRelation.mode must be hard|soft|setBooster when provided');
       }
       break;
     }
@@ -83,7 +92,7 @@ function validatePatch(patch) {
 function normalizePatchList(patches = []) {
   const normalized = {
     setCredits: null,
-    unlockBlueprintWares: new Set(),
+      unlockBlueprintWares: new Set(),
     relations: new Map(),
     licenceOps: {
       addFactionsByType: new Map(),
@@ -104,8 +113,12 @@ function normalizePatchList(patches = []) {
       case 'UnlockBlueprintWares':
         patch.wares.forEach((ware) => normalized.unlockBlueprintWares.add(ware));
         break;
+      case 'SetFactionRep':
       case 'SetFactionRelation':
-        normalized.relations.set(patch.factionId, repUiToFloatString(patch.repUI));
+        normalized.relations.set(patch.factionId, {
+          relation: repUiToFloatString(patch.repUI),
+          mode: normalizeRelationMode(patch.mode)
+        });
         break;
       case 'AddLicenceFaction': {
         const key = resolveLicenceTypeName(patch);
@@ -150,5 +163,6 @@ module.exports = {
   validatePatch,
   repUiToFloatString,
   parseFactionList,
-  stringifyFactionList
+  stringifyFactionList,
+  normalizeRelationMode
 };

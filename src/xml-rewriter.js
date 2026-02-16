@@ -33,6 +33,7 @@ async function exportPatchedSave({ sourcePath, outputPath, patches, compress = t
     walletAccountsUpdated: 0,
     blueprintsInserted: 0,
     relationsInserted: 0,
+    boostersDeleted: 0,
     licencesInserted: 0
   };
 
@@ -51,6 +52,7 @@ async function exportPatchedSave({ sourcePath, outputPath, patches, compress = t
     let inRelations = false;
     let currentRelationsFaction = null;
     let foundRelationTargets = new Set();
+    let foundBoosterTargets = new Set();
 
     let inBlueprints = false;
     const seenBlueprintWares = new Set();
@@ -118,15 +120,37 @@ async function exportPatchedSave({ sourcePath, outputPath, patches, compress = t
         inRelations = true;
         currentRelationsFaction = currentFactionId;
         foundRelationTargets = new Set();
+        foundBoosterTargets = new Set();
       }
       if (n === 'relation' && inRelations && parent === 'relations') {
         const targetFaction = String(attrs.faction ?? '');
         foundRelationTargets.add(targetFaction);
 
         if (currentRelationsFaction === 'player' && normalized.relations.has(targetFaction)) {
-          attrs.relation = normalized.relations.get(targetFaction);
+          attrs.relation = normalized.relations.get(targetFaction).relation;
         } else if (normalized.relations.has(currentRelationsFaction) && targetFaction === 'player') {
-          attrs.relation = normalized.relations.get(currentRelationsFaction);
+          attrs.relation = normalized.relations.get(currentRelationsFaction).relation;
+        }
+      }
+
+      if (n === 'booster' && inRelations && parent === 'relations') {
+        const targetFaction = String(attrs.faction ?? '');
+        foundBoosterTargets.add(targetFaction);
+
+        if (currentRelationsFaction === 'player' && normalized.relations.has(targetFaction)) {
+          const relationPatch = normalized.relations.get(targetFaction);
+          if (relationPatch.mode === 'hard') {
+            skipStack.push(n);
+            stats.boostersDeleted += 1;
+            return;
+          }
+        } else if (normalized.relations.has(currentRelationsFaction) && targetFaction === 'player') {
+          const relationPatch = normalized.relations.get(currentRelationsFaction);
+          if (relationPatch.mode === 'hard') {
+            skipStack.push(n);
+            stats.boostersDeleted += 1;
+            return;
+          }
         }
       }
 
@@ -186,14 +210,14 @@ async function exportPatchedSave({ sourcePath, outputPath, patches, compress = t
 
       if (n === 'relations' && inRelations) {
         if (currentRelationsFaction === 'player') {
-          for (const [factionId, relationValue] of normalized.relations.entries()) {
+          for (const [factionId, relationPatch] of normalized.relations.entries()) {
             if (!foundRelationTargets.has(factionId)) {
-              output.write(`<relation faction="${esc(factionId)}" relation="${esc(relationValue)}"></relation>`);
+              output.write(`<relation faction="${esc(factionId)}" relation="${esc(relationPatch.relation)}"></relation>`);
               stats.relationsInserted += 1;
             }
           }
         } else if (normalized.relations.has(currentRelationsFaction) && !foundRelationTargets.has('player')) {
-          output.write(`<relation faction="player" relation="${esc(normalized.relations.get(currentRelationsFaction))}"></relation>`);
+          output.write(`<relation faction="player" relation="${esc(normalized.relations.get(currentRelationsFaction).relation)}"></relation>`);
           stats.relationsInserted += 1;
         }
         inRelations = false;
