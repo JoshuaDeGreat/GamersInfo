@@ -1,0 +1,73 @@
+{
+  "name": "Common Mod Parts Pack",
+  "items": [
+    {
+      "ware": "modpart_enginefuelinjector_t1",
+      "amount": 9999
+    },
+    {
+      "ware": "modpart_enginefuelinjector_t2",
+      "amount": 9999
+    },
+    {
+      "ware": "modpart_enginefuelinjector_t3",
+      "amount": 9999
+    },
+    {
+      "ware": "modpart_extendedfuelcontainer",
+      "amount": 9999
+    },
+    {
+      "ware": "modpart_highenergycatalyst",
+      "amount": 9999
+    },
+    {
+      "ware": "modpart_nividiumcrystallite",
+      "amount": 9999
+    },
+    {
+      "ware": "modpart_nividiumoxide",
+      "amount": 9999
+    },
+    {
+      "ware": "modpart_shieldgeneratorcoil_t1",
+      "amount": 9999
+    },
+    {
+      "ware": "modpart_shieldgeneratorcoil_t2",
+      "amount": 9999
+    },
+    {
+      "ware": "modpart_shieldgeneratorcoil_t3",
+      "amount": 9999
+    },
+    {
+      "ware": "modpart_shipnanoweave_t1",
+      "amount": 9999
+    },
+    {
+      "ware": "modpart_shipnanoweave_t2",
+      "amount": 9999
+    },
+    {
+      "ware": "modpart_shipnanoweave_t3",
+      "amount": 9999
+    },
+    {
+      "ware": "modpart_tuningsoftware",
+      "amount": 9999
+    },
+    {
+      "ware": "modpart_weaponchamber_t1",
+      "amount": 9999
+    },
+    {
+      "ware": "modpart_weaponchamber_t2",
+      "amount": 9999
+    },
+    {
+      "ware": "modpart_weaponchamber_t3",
+      "amount": 9999
+    }
+  ]
+}

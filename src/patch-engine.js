@@ -57,6 +57,12 @@ function validatePatch(patch) {
       if (typeof patch.typeName !== 'string' || !patch.typeName.trim()) throw new Error('RemoveLicenceType.typeName must be non-empty');
       break;
     }
+    case 'SetInventoryItem':
+    case 'AddInventoryItem': {
+      if (typeof patch.ware !== 'string' || !patch.ware.trim()) throw new Error(`${patch.type}.ware must be non-empty`);
+      if (!Number.isInteger(patch.amount) || patch.amount < 0) throw new Error(`${patch.type}.amount must be integer >= 0`);
+      break;
+    }
     default:
       throw new Error(`Unsupported patch type: ${patch.type}`);
   }
@@ -72,7 +78,8 @@ function normalizePatchList(patches = []) {
       removeFactionsByType: new Map(),
       addTypes: new Map(),
       removeTypes: new Set()
-    }
+    },
+    inventoryOps: new Map()
   };
 
   for (const patch of patches) {
@@ -106,6 +113,18 @@ function normalizePatchList(patches = []) {
       case 'RemoveLicenceType':
         normalized.licenceOps.removeTypes.add(patch.typeName);
         break;
+      case 'SetInventoryItem': {
+        const current = normalized.inventoryOps.get(patch.ware) || { set: null, add: 0 };
+        current.set = patch.amount;
+        normalized.inventoryOps.set(patch.ware, current);
+        break;
+      }
+      case 'AddInventoryItem': {
+        const current = normalized.inventoryOps.get(patch.ware) || { set: null, add: 0 };
+        current.add += patch.amount;
+        normalized.inventoryOps.set(patch.ware, current);
+        break;
+      }
       default:
         break;
     }

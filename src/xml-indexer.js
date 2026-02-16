@@ -19,13 +19,17 @@ async function buildIndex(filePath) {
       },
       blueprints: { owned: [] },
       relations: { player: [], byFaction: {} },
-      licences: []
+      licences: [],
+      inventory: { player: {}, playerList: [] }
     };
 
     const stack = [];
     let currentFactionId = null;
     let inPlayerFaction = false;
     let inPlayerLicences = false;
+    let inPlayerComponent = false;
+    let playerComponentDepth = -1;
+    let inPlayerInventory = false;
 
     parser.on('opentag', (node) => {
       const name = node.name.toLowerCase();
@@ -83,6 +87,22 @@ async function buildIndex(filePath) {
         inPlayerLicences = true;
       }
 
+
+      if (name === 'component' && attrs.class === 'player' && !inPlayerComponent) {
+        inPlayerComponent = true;
+        playerComponentDepth = stack.length;
+      }
+
+      if (name === 'inventory' && inPlayerComponent) {
+        inPlayerInventory = true;
+      }
+
+      if (name === 'ware' && inPlayerInventory) {
+        const ware = String(attrs.ware ?? '');
+        const amount = Number(attrs.amount ?? 0);
+        if (ware) model.inventory.player[ware] = Number.isFinite(amount) ? amount : 0;
+      }
+
       if (name === 'licence' && inPlayerLicences) {
         model.licences.push({
           type: String(attrs.type ?? ''),
@@ -96,6 +116,11 @@ async function buildIndex(filePath) {
       stack.pop();
 
       if (name === 'licences') inPlayerLicences = false;
+      if (name === 'inventory') inPlayerInventory = false;
+      if (name === 'component' && inPlayerComponent && stack.length < playerComponentDepth) {
+        inPlayerComponent = false;
+        playerComponentDepth = -1;
+      }
       if (name === 'faction') {
         currentFactionId = null;
         inPlayerFaction = false;
@@ -105,6 +130,7 @@ async function buildIndex(filePath) {
     parser.on('error', reject);
     parser.on('end', () => {
       model.blueprints.owned = Array.from(new Set(model.blueprints.owned));
+      model.inventory.playerList = Object.entries(model.inventory.player).map(([ware, amount]) => ({ ware, amount }));
       resolve(model);
     });
 

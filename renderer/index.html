@@ -11,14 +11,20 @@
       <button id="importBtn">Import Save</button>
       <button id="undoBtn">Undo</button>
       <button id="redoBtn">Redo</button>
-      <input id="globalSearch" placeholder="Global search" />
+      <button id="resetAllBtn">Reset all changes</button>
       <span id="saveMeta">No save loaded</span>
     </header>
     <div class="layout">
       <nav id="tabs" class="tabs"></nav>
       <main id="main"></main>
     </div>
-    <footer class="status" id="status">Ready</footer>
+    <footer class="status" id="status">
+      <span id="statusText">Ready</span>
+      <span id="statusIndex"></span>
+      <span id="statusMeta"></span>
+      <span id="statusWarnings"></span>
+      <span id="statusDirty"></span>
+    </footer>
     <script src="app.js"></script>
   </body>
 </html>

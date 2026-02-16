@@ -7,7 +7,7 @@ const sax = require('sax');
 const { buildIndex } = require('../src/xml-indexer');
 const { exportPatchedSave } = require('../src/xml-rewriter');
 
-const fixtureXml = `<?xml version="1.0"?><savegame><info><save name="#010" date="1543674469"></save></info><player name="Val Selton" location="{20004,60011}" money="999910000"></player><statistics><stat id="money_player" value="999910000"></stat></statistics><factions><faction id="player"><relations><relation faction="criminal" relation="-0.5"></relation><relation faction="scaleplate" relation="-0.0032"></relation></relations><account id="[0x79]" amount="999910000"></account><licences><licence type="station_gen_basic" factions="paranid teladi"></licence><licence type="station_illegal" factions="scaleplate hatikvah"></licence></licences></faction><faction id="argon"><relations><relation faction="alliance" relation="0.1"></relation></relations></faction><faction id="scaleplate"><relations><relation faction="player" relation="-0.0032"></relation></relations></faction></factions><accounts><account id="[0x79]" amount="999910000"></account></accounts><blueprints><blueprint ware="module_gen_prod_energycells_01"></blueprint><blueprint ware="paintmod_0050"></blueprint></blueprints></savegame>`;
+const fixtureXml = `<?xml version="1.0"?><savegame><info><save name="#010" date="1543674469"></save></info><player name="Val Selton" location="{20004,60011}" money="999910000"></player><components><component class="player"><inventory><ware ware="inv_remotedetonator" amount="2"></ware></inventory></component></components><statistics><stat id="money_player" value="999910000"></stat></statistics><factions><faction id="player"><relations><relation faction="criminal" relation="-0.5"></relation><relation faction="scaleplate" relation="-0.0032"></relation></relations><account id="[0x79]" amount="999910000"></account><licences><licence type="station_gen_basic" factions="paranid teladi"></licence><licence type="station_illegal" factions="scaleplate hatikvah"></licence></licences></faction><faction id="argon"><relations><relation faction="alliance" relation="0.1"></relation></relations></faction><faction id="scaleplate"><relations><relation faction="player" relation="-0.0032"></relation></relations></faction></factions><accounts><account id="[0x79]" amount="999910000"></account></accounts><blueprints><blueprint ware="module_gen_prod_energycells_01"></blueprint><blueprint ware="paintmod_0050"></blueprint></blueprints></savegame>`;
 
 function writeFixture() {
   const dir = fs.mkdtempSync(path.join(process.cwd(), 'tmp-x4-'));
@@ -36,6 +36,7 @@ test('indexing reads verified anchors', async () => {
   assert.equal(model.credits.playerWalletAccountId, '[0x79]');
   assert.equal(model.credits.walletAccountOccurrences, 2);
   assert.equal(model.blueprints.owned.length, 2);
+  assert.equal(model.inventory.player.inv_remotedetonator, 2);
   assert.equal(model.relations.byFaction.argon.some((item) => item.targetFactionId === 'player'), false);
 
   fs.rmSync(dir, { recursive: true, force: true });
@@ -134,6 +135,29 @@ test('licence operations add and remove factions deterministically', async () =>
   const edited = fs.readFileSync(outputPath, 'utf8');
   assert.match(edited, /type="station_gen_basic" factions="paranid teladi argon"/);
   assert.match(edited, /type="station_illegal" factions="scaleplate"/);
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+
+test('Inventory set/add updates existing and inserts missing ware', async () => {
+  const { dir, xmlPath } = writeFixture();
+  const outputPath = path.join(dir, 'inventory.xml');
+
+  await exportPatchedSave({
+    sourcePath: xmlPath,
+    outputPath,
+    patches: [
+      { type: 'AddInventoryItem', ware: 'inv_remotedetonator', amount: 3 },
+      { type: 'SetInventoryItem', ware: 'inv_new_item', amount: 5 }
+    ],
+    compress: false,
+    createBackup: false
+  });
+
+  const edited = fs.readFileSync(outputPath, 'utf8');
+  assert.match(edited, /ware="inv_remotedetonator" amount="5"/);
+  assert.match(edited, /ware="inv_new_item" amount="5"/);
 
   fs.rmSync(dir, { recursive: true, force: true });
 });
