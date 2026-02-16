@@ -8,9 +8,9 @@ const state = {
   patches: [],
   undo: [],
   redo: [],
-  dicts: { blueprints: {}, items: {}, factionsById: {}, presets: { modparts: { name: 'Common Mod Parts Pack', items: [] } }, helpText: '' },
+  dicts: { blueprints: {}, items: {}, factionsById: {}, licenceTypes: [], presets: { modparts: { name: 'Common Mod Parts Pack', items: [] } }, helpText: '' },
   filters: { blueprintSearch: '', blueprintCategory: 'All', itemSearch: '', itemCategory: 'All', inventoryMode: 'set' },
-  ui: { selectedLicenceFactionId: '', newLicenceType: '' },
+  ui: { selectedLicenceFactionId: '', licenceCatalogSearch: '' },
   exportResult: null
 };
 
@@ -32,7 +32,6 @@ function renderStatusBar() {
 function pushPatch(patch) { state.undo.push(structuredClone(state.patches)); state.redo = []; state.patches.push(patch); render(); }
 function resetChanges() { state.patches = []; state.undo = []; state.redo = []; render(); }
 function resetLicencePanel() {
-  state.ui.newLicenceType = '';
   if (state.model?.licencesModel?.allFactionsInLicences?.length) {
     state.ui.selectedLicenceFactionId = state.model.licencesModel.allFactionsInLicences[0];
   } else {
@@ -140,17 +139,24 @@ function renderLicences() {
   if (!hasPlayerFaction()) return '<div class="card"><h3>Licences</h3><p>Cannot edit licences: &lt;faction id="player"&gt; not found in this save.</p></div>';
 
   const { byType, allTypes, allFactions } = licenceStateFromModelAndPatches();
-  if (!state.ui.selectedLicenceFactionId || !allFactions.includes(state.ui.selectedLicenceFactionId)) {
-    state.ui.selectedLicenceFactionId = allFactions[0] || '';
+  const selectableFactions = Object.keys(state.dicts.factionsById || {}).sort();
+  const factionPool = selectableFactions.length ? selectableFactions : allFactions;
+  if (!state.ui.selectedLicenceFactionId || !factionPool.includes(state.ui.selectedLicenceFactionId)) {
+    state.ui.selectedLicenceFactionId = factionPool[0] || '';
   }
 
-  if (!state.model.licencesModel.licencesBlockFound && allTypes.length === 0) {
-    return '<div class="card"><h3>Licences</h3><p>No licences block found.</p></div>';
-  }
+  const catalogueTypes = (state.dicts.licenceTypes || []).slice().sort();
+  const search = state.ui.licenceCatalogSearch.trim().toLowerCase();
+  const catalogueRows = catalogueTypes
+    .filter((typeName) => !search || typeName.toLowerCase().includes(search))
+    .map((typeName) => {
+      const present = byType.has(typeName);
+      return `<label class="licence-catalog-row"><div><strong>${typeName}</strong><div class="muted">${present ? 'Present in save' : 'Missing'}</div></div><button data-add-lic-catalog="${typeName}" ${present ? 'disabled' : ''}>Add to Save</button></label>`;
+    }).join('');
 
-  const factionButtons = allFactions.length
-    ? allFactions.map((id) => `<button class="tab-btn ${state.ui.selectedLicenceFactionId === id ? 'active' : ''}" data-lic-faction="${id}">${factionLabel(id)}</button>`).join('')
-    : '<p>No factions found in licences yet.</p>';
+  const factionButtons = factionPool.length
+    ? factionPool.map((id) => `<button class="tab-btn ${state.ui.selectedLicenceFactionId === id ? 'active' : ''}" data-lic-faction="${id}">${factionLabel(id)}</button>`).join('')
+    : '<p>No factions available.</p>';
 
   const typeRows = allTypes.length
     ? allTypes.map((typeName) => {
@@ -159,7 +165,7 @@ function renderLicences() {
     }).join('')
     : '<p>No licence types discovered.</p>';
 
-  return `<div class="card licence-layout"><div class="licence-factions"><h3>Factions</h3>${factionButtons}</div><div><h3>Licences for ${factionLabel(state.ui.selectedLicenceFactionId) || '(select faction)'}</h3>${!state.model.licencesModel.licencesBlockFound ? '<p class="banner">No licences block found in source save. New licences will be inserted on export.</p>' : ''}${typeRows}<div class="row" style="margin-top:10px"><input id="newLicType" placeholder="new licence type" value="${state.ui.newLicenceType}"/><button id="addLicType">Add licence type…</button><button id="resetLicPanel">Reset changes</button></div></div></div>`;
+  return `<div class="card"><h3>Licence Type Catalog</h3><input id="licCatalogSearch" placeholder="Search licence types" value="${state.ui.licenceCatalogSearch}"/><div class="licence-catalog-list">${catalogueRows || '<p>No matching licence types.</p>'}</div><p class="muted">Some licence types may be DLC/faction dependent. Add only what you recognise.</p></div><div class="card licence-layout"><div class="licence-factions"><h3>Factions</h3>${factionButtons}</div><div><h3>Player Licences for ${factionLabel(state.ui.selectedLicenceFactionId) || '(select faction)'}</h3>${!state.model.licencesModel.licencesBlockFound ? '<p class="banner">No licences block found in source save. New licences will be inserted on export.</p>' : ''}${typeRows}<div class="row" style="margin-top:10px"><button id="resetLicPanel">Reset changes</button></div></div></div>`;
 }
 
 function groupedPatches() {
@@ -278,13 +284,17 @@ function wireEvents() {
     if (!typeName || !factionId) return;
     pushPatch({ type: input.checked ? 'AddLicenceFaction' : 'RemoveLicenceFaction', typeName, factionId });
   }));
-  document.getElementById('newLicType')?.addEventListener('input', (event) => { state.ui.newLicenceType = event.target.value; });
-  document.getElementById('addLicType')?.addEventListener('click', () => {
-    const typeName = state.ui.newLicenceType.trim();
-    if (!typeName) return;
-    pushPatch({ type: 'AddLicenceType', typeName, factions: [] });
-    state.ui.newLicenceType = '';
+  document.getElementById('licCatalogSearch')?.addEventListener('input', (event) => {
+    state.ui.licenceCatalogSearch = event.target.value;
+    render();
   });
+  document.querySelectorAll('button[data-add-lic-catalog]').forEach((button) => button.addEventListener('click', () => {
+    const typeName = (button.dataset.addLicCatalog || '').trim();
+    if (!typeName) return;
+    const { byType } = licenceStateFromModelAndPatches();
+    if (byType.has(typeName)) return;
+    pushPatch({ type: 'AddLicenceType', typeName, factions: [] });
+  }));
   document.getElementById('resetLicPanel')?.addEventListener('click', resetLicencePanel);
 
   document.getElementById('clearPatches')?.addEventListener('click', resetChanges);
@@ -310,7 +320,7 @@ document.getElementById('importBtn').onclick = async () => {
   state.undo = [];
   state.redo = [];
   state.exportResult = null;
-  state.ui.newLicenceType = '';
+  state.ui.licenceCatalogSearch = '';
   state.ui.selectedLicenceFactionId = response.index?.licencesModel?.allFactionsInLicences?.[0] || '';
   document.getElementById('saveMeta').textContent = response.filePath;
   setStatus('Indexed save successfully.');

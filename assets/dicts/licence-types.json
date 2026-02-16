@@ -1,0 +1,24 @@
+{
+  "types": [
+    "capitalequipment",
+    "capitalship",
+    "ceremonyfriend",
+    "ceremonyally",
+    "generaluseequipment",
+    "generaluseship",
+    "militaryequipment",
+    "militaryship",
+    "police",
+    "station_gen_basic",
+    "station_gen_intermediate",
+    "station_gen_advanced",
+    "station_equip_sm",
+    "station_equip_lxl",
+    "station_illegal",
+    "subgroupfriend",
+    "tradesubscription",
+    "innercore_access",
+    "outercore_access",
+    "shipsalecontract"
+  ]
+}
