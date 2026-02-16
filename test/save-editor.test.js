@@ -38,6 +38,10 @@ test('indexing reads verified anchors', async () => {
   assert.equal(model.blueprints.owned.length, 2);
   assert.equal(model.inventory.player.inv_remotedetonator, 2);
   assert.equal(model.relations.byFaction.argon.some((item) => item.targetFactionId === 'player'), false);
+  assert.equal(model.licencesModel.playerFactionFound, true);
+  assert.equal(model.licencesModel.licencesBlockFound, true);
+  assert.deepEqual(model.licencesModel.allLicenceTypes, ['station_gen_basic', 'station_illegal']);
+  assert.deepEqual(model.licencesModel.allFactionsInLicences, ['hatikvah', 'paranid', 'scaleplate', 'teladi']);
 
   fs.rmSync(dir, { recursive: true, force: true });
 });
@@ -133,7 +137,7 @@ test('licence operations add and remove factions deterministically', async () =>
   });
 
   const edited = fs.readFileSync(outputPath, 'utf8');
-  assert.match(edited, /type="station_gen_basic" factions="paranid teladi argon"/);
+  assert.match(edited, /type="station_gen_basic" factions="argon paranid teladi"/);
   assert.match(edited, /type="station_illegal" factions="scaleplate"/);
 
   fs.rmSync(dir, { recursive: true, force: true });
@@ -158,6 +162,70 @@ test('Inventory set/add updates existing and inserts missing ware', async () => 
   const edited = fs.readFileSync(outputPath, 'utf8');
   assert.match(edited, /ware="inv_remotedetonator" amount="5"/);
   assert.match(edited, /ware="inv_new_item" amount="5"/);
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+
+test('licence add/remove operations are idempotent and sorted', async () => {
+  const { dir, xmlPath } = writeFixture();
+  const outputPath = path.join(dir, 'licences-idempotent.xml');
+
+  await exportPatchedSave({
+    sourcePath: xmlPath,
+    outputPath,
+    patches: [
+      { type: 'AddLicenceFaction', typeName: 'station_gen_basic', factionId: 'argon' },
+      { type: 'AddLicenceFaction', typeName: 'station_gen_basic', factionId: 'argon' },
+      { type: 'RemoveLicenceFaction', typeName: 'station_illegal', factionId: 'hatikvah' },
+      { type: 'RemoveLicenceFaction', typeName: 'station_illegal', factionId: 'hatikvah' }
+    ],
+    compress: false,
+    createBackup: false
+  });
+
+  const edited = fs.readFileSync(outputPath, 'utf8');
+  assert.match(edited, /type="station_gen_basic" factions="argon paranid teladi"/);
+  assert.match(edited, /type="station_illegal" factions="scaleplate"/);
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('creates licences block when missing in player faction', async () => {
+  const xml = `<?xml version="1.0"?><savegame><factions><faction id="player"><account id="[0x1]" amount="10"></account></faction></factions></savegame>`;
+  const dir = fs.mkdtempSync(path.join(process.cwd(), 'tmp-x4-'));
+  const xmlPath = path.join(dir, 'nolic.xml');
+  fs.writeFileSync(xmlPath, xml);
+  const outputPath = path.join(dir, 'nolic-out.xml');
+
+  await exportPatchedSave({
+    sourcePath: xmlPath,
+    outputPath,
+    patches: [{ type: 'AddLicenceFaction', typeName: 'station_gen_basic', factionId: 'argon' }],
+    compress: false,
+    createBackup: false
+  });
+
+  const edited = fs.readFileSync(outputPath, 'utf8');
+  assert.match(edited, /<faction id="player">[\s\S]*<licences><licence type="station_gen_basic" factions="argon"><\/licence><\/licences><\/faction>/);
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('licence edits fail when player faction is missing', async () => {
+  const xml = `<?xml version="1.0"?><savegame><factions><faction id="argon"></faction></factions></savegame>`;
+  const dir = fs.mkdtempSync(path.join(process.cwd(), 'tmp-x4-'));
+  const xmlPath = path.join(dir, 'nofaction.xml');
+  fs.writeFileSync(xmlPath, xml);
+  const outputPath = path.join(dir, 'nofaction-out.xml');
+
+  await assert.rejects(() => exportPatchedSave({
+    sourcePath: xmlPath,
+    outputPath,
+    patches: [{ type: 'AddLicenceFaction', typeName: 'station_gen_basic', factionId: 'argon' }],
+    compress: false,
+    createBackup: false
+  }), /Cannot edit licences/);
 
   fs.rmSync(dir, { recursive: true, force: true });
 });

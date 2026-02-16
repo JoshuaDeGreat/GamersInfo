@@ -16,7 +16,16 @@ function parseFactionList(value = '') {
 }
 
 function stringifyFactionList(list) {
-  return Array.from(new Set(list)).join(' ');
+  return Array.from(new Set(list)).sort().join(' ');
+}
+
+function resolveLicenceTypeName(patch) {
+  return String(patch.typeName ?? patch.licenceType ?? patch.targetType ?? '').trim();
+}
+
+function validateLicenceTypeName(opName, typeName) {
+  if (!typeName) throw new Error(`${opName}.type must be non-empty`);
+  if (/["]/.test(typeName)) throw new Error(`${opName}.type must not contain quotes`);
 }
 
 function validatePatch(patch) {
@@ -42,19 +51,22 @@ function validatePatch(patch) {
     }
     case 'AddLicenceFaction':
     case 'RemoveLicenceFaction': {
-      if (typeof patch.typeName !== 'string' || !patch.typeName.trim()) throw new Error(`${patch.type}.typeName must be non-empty`);
+      const typeName = resolveLicenceTypeName(patch);
+      validateLicenceTypeName(patch.type, typeName);
       if (typeof patch.factionId !== 'string' || !patch.factionId.trim()) throw new Error(`${patch.type}.factionId must be non-empty`);
       break;
     }
     case 'AddLicenceType': {
-      if (typeof patch.typeName !== 'string' || !patch.typeName.trim()) throw new Error('AddLicenceType.typeName must be non-empty');
+      const typeName = resolveLicenceTypeName(patch);
+      validateLicenceTypeName('AddLicenceType', typeName);
       if (!Array.isArray(patch.factions) || patch.factions.some((id) => typeof id !== 'string' || !id.trim())) {
-        throw new Error('AddLicenceType.factions must be non-empty strings');
+        throw new Error('AddLicenceType.factions must be strings when provided');
       }
       break;
     }
     case 'RemoveLicenceType': {
-      if (typeof patch.typeName !== 'string' || !patch.typeName.trim()) throw new Error('RemoveLicenceType.typeName must be non-empty');
+      const typeName = resolveLicenceTypeName(patch);
+      validateLicenceTypeName('RemoveLicenceType', typeName);
       break;
     }
     case 'SetInventoryItem':
@@ -96,22 +108,22 @@ function normalizePatchList(patches = []) {
         normalized.relations.set(patch.factionId, repUiToFloatString(patch.repUI));
         break;
       case 'AddLicenceFaction': {
-        const key = patch.typeName;
+        const key = resolveLicenceTypeName(patch);
         if (!normalized.licenceOps.addFactionsByType.has(key)) normalized.licenceOps.addFactionsByType.set(key, new Set());
         normalized.licenceOps.addFactionsByType.get(key).add(patch.factionId);
         break;
       }
       case 'RemoveLicenceFaction': {
-        const key = patch.typeName;
+        const key = resolveLicenceTypeName(patch);
         if (!normalized.licenceOps.removeFactionsByType.has(key)) normalized.licenceOps.removeFactionsByType.set(key, new Set());
         normalized.licenceOps.removeFactionsByType.get(key).add(patch.factionId);
         break;
       }
       case 'AddLicenceType':
-        normalized.licenceOps.addTypes.set(patch.typeName, new Set(patch.factions));
+        normalized.licenceOps.addTypes.set(resolveLicenceTypeName(patch), new Set(patch.factions));
         break;
       case 'RemoveLicenceType':
-        normalized.licenceOps.removeTypes.add(patch.typeName);
+        normalized.licenceOps.removeTypes.add(resolveLicenceTypeName(patch));
         break;
       case 'SetInventoryItem': {
         const current = normalized.inventoryOps.get(patch.ware) || { set: null, add: 0 };

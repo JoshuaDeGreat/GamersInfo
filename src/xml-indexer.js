@@ -20,6 +20,13 @@ async function buildIndex(filePath) {
       blueprints: { owned: [] },
       relations: { player: [], byFaction: {} },
       licences: [],
+      licencesModel: {
+        playerFactionFound: false,
+        licencesBlockFound: false,
+        licencesByType: {},
+        allLicenceTypes: [],
+        allFactionsInLicences: []
+      },
       inventory: { player: {}, playerList: [] }
     };
 
@@ -54,6 +61,7 @@ async function buildIndex(filePath) {
       if (name === 'faction') {
         currentFactionId = String(attrs.id ?? '');
         inPlayerFaction = currentFactionId === 'player';
+        if (inPlayerFaction) model.licencesModel.playerFactionFound = true;
       }
 
       if (name === 'account') {
@@ -85,8 +93,8 @@ async function buildIndex(filePath) {
 
       if (name === 'licences' && inPlayerFaction) {
         inPlayerLicences = true;
+        model.licencesModel.licencesBlockFound = true;
       }
-
 
       if (name === 'component' && attrs.class === 'player' && !inPlayerComponent) {
         inPlayerComponent = true;
@@ -104,10 +112,18 @@ async function buildIndex(filePath) {
       }
 
       if (name === 'licence' && inPlayerLicences) {
-        model.licences.push({
-          type: String(attrs.type ?? ''),
-          factions: String(attrs.factions ?? '')
-        });
+        const type = String(attrs.type ?? '').trim();
+        const factionsRaw = String(attrs.factions ?? '');
+        model.licences.push({ type, factions: factionsRaw });
+
+        if (type) {
+          if (!model.licencesModel.licencesByType[type]) model.licencesModel.licencesByType[type] = new Set();
+          factionsRaw
+            .split(/\s+/)
+            .map((token) => token.trim())
+            .filter(Boolean)
+            .forEach((factionId) => model.licencesModel.licencesByType[type].add(factionId));
+        }
       }
     });
 
@@ -131,6 +147,19 @@ async function buildIndex(filePath) {
     parser.on('end', () => {
       model.blueprints.owned = Array.from(new Set(model.blueprints.owned));
       model.inventory.playerList = Object.entries(model.inventory.player).map(([ware, amount]) => ({ ware, amount }));
+
+      const allFactions = new Set();
+      const sortedTypes = Object.keys(model.licencesModel.licencesByType).sort();
+      const licencesByType = {};
+      for (const type of sortedTypes) {
+        const sortedFactions = Array.from(model.licencesModel.licencesByType[type]).sort();
+        sortedFactions.forEach((id) => allFactions.add(id));
+        licencesByType[type] = sortedFactions;
+      }
+
+      model.licencesModel.licencesByType = licencesByType;
+      model.licencesModel.allLicenceTypes = sortedTypes;
+      model.licencesModel.allFactionsInLicences = Array.from(allFactions).sort();
       resolve(model);
     });
 

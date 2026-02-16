@@ -62,8 +62,8 @@ ipcMain.handle('save:export', async (_event, payload) => {
 
 ipcMain.handle('dict:load', async () => {
   const base = app.getAppPath();
-  const [factions, blueprints, items, modpartsPreset, helpText] = await Promise.all([
-    fs.readFile(path.join(base, 'data', 'factions.json'), 'utf8'),
+  const [factionsById, blueprints, items, modpartsPreset, helpText] = await Promise.all([
+    fs.readFile(path.join(base, 'assets', 'dicts', 'factions.json'), 'utf8'),
     fs.readFile(path.join(base, 'assets', 'dicts', 'blueprints.json'), 'utf8'),
     fs.readFile(path.join(base, 'assets', 'dicts', 'items.json'), 'utf8'),
     fs.readFile(path.join(base, 'assets', 'presets', 'modparts.json'), 'utf8'),
@@ -71,7 +71,7 @@ ipcMain.handle('dict:load', async () => {
   ]);
 
   return {
-    factions: JSON.parse(factions),
+    factionsById: JSON.parse(factionsById),
     blueprints: JSON.parse(blueprints),
     items: JSON.parse(items),
     presets: { modparts: JSON.parse(modpartsPreset) },
