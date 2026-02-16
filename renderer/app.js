@@ -1,8 +1,9 @@
-const tabs = ['Overview', 'Credits', 'Relations', 'Skills', 'Blueprints', 'Inventory', 'Objects', 'Changes', 'Export'];
+const tabs = ['Overview', 'Credits', 'Blueprints', 'Relations', 'Licences', 'Changes Preview', 'Export'];
+
 const state = {
   activeTab: 'Overview',
+  sourcePath: '',
   model: null,
-  dictionaries: null,
   patches: [],
   undo: [],
   redo: []
@@ -12,186 +13,230 @@ const tabNav = document.getElementById('tabs');
 const main = document.getElementById('main');
 const statusEl = document.getElementById('status');
 
-function setStatus(message) { statusEl.textContent = message; }
-
-function hasModelLoaded() {
-  return Boolean(state.model);
-}
-
-function requireModelLoaded(actionLabel) {
-  if (hasModelLoaded()) return true;
-  setStatus(`Import a save before using ${actionLabel}.`);
-  return false;
+function setStatus(text) {
+  statusEl.textContent = text;
 }
 
 function pushPatch(patch) {
   state.undo.push(structuredClone(state.patches));
   state.redo = [];
   state.patches.push(patch);
-  setStatus(`Queued patch: ${patch.type}`);
   render();
 }
 
-function replacePatches(next) {
-  state.undo.push(structuredClone(state.patches));
-  state.patches = next;
-  state.redo = [];
-  render();
+function canEdit() {
+  if (state.model) return true;
+  setStatus('Import a save first.');
+  return false;
 }
 
 function renderTabs() {
-  tabNav.innerHTML = tabs.map((t) => `<button class="tab-btn ${state.activeTab === t ? 'active' : ''}" data-tab="${t}">${t}</button>`).join('');
-  tabNav.querySelectorAll('button').forEach((btn) => btn.onclick = () => { state.activeTab = btn.dataset.tab; render(); });
-}
-
-function rowTable(headers, rows) {
-  return `<table class="table"><thead><tr>${headers.map((h) => `<th>${h}</th>`).join('')}</tr></thead><tbody>${rows.join('')}</tbody></table>`;
+  tabNav.innerHTML = tabs.map((tab) => `<button class="tab-btn ${state.activeTab === tab ? 'active' : ''}" data-tab="${tab}">${tab}</button>`).join('');
+  tabNav.querySelectorAll('[data-tab]').forEach((btn) => {
+    btn.onclick = () => {
+      state.activeTab = btn.dataset.tab;
+      render();
+    };
+  });
 }
 
 function renderOverview() {
-  if (!state.model) return `<div class='card'>Import a save to begin.</div>`;
+  if (!state.model) return `<div class="card">Import an XML/XML.GZ save to start indexing.</div>`;
   const m = state.model;
-  return `<div class='grid2'>${['accounts','relations','npcs','blueprints','inventory','objects'].map((k)=>`<div class='card'><h3>${k}</h3><div class='pill'>${m[k].length}</div></div>`).join('')}</div>`;
+  return `
+    <div class="card">
+      <h3>Save Header</h3>
+      <p><strong>Name:</strong> ${m.metadata.saveName || '(unknown)'}</p>
+      <p><strong>Date:</strong> ${m.metadata.saveDate || '(unknown)'}</p>
+      <p><strong>File:</strong> ${state.sourcePath}</p>
+    </div>
+    <div class="grid2">
+      <div class="card"><h3>Blueprints owned</h3><div class="pill">${m.blueprints.owned.length}</div></div>
+      <div class="card"><h3>Player relations</h3><div class="pill">${m.relations.player.length}</div></div>
+      <div class="card"><h3>Player licences</h3><div class="pill">${m.licences.length}</div></div>
+      <div class="card"><h3>Wallet account matches</h3><div class="pill">${m.credits.walletAccountOccurrences}</div></div>
+    </div>
+  `;
 }
 
 function renderCredits() {
-  const accounts = state.model?.accounts || [];
-  const playerAccounts = accounts.filter((a) => (a.owner || '').toLowerCase() === 'player');
-  const playerCredits = playerAccounts.reduce((sum, account) => sum + Number(account.money || 0), 0);
-  return `<div class='card'><h3>Credits / Accounts</h3>
-    <p>Found ${accounts.length} accounts.</p>
-    <p><strong>Player credits currently in save:</strong> ${playerCredits.toLocaleString()} (${playerAccounts.length} player account${playerAccounts.length === 1 ? '' : 's'})</p>
-    <input id='playerCredits' type='number' min='0' placeholder='Player credits' value='${playerCredits}' />
-    <button id='setPlayerCredits'>Set Player Credits</button>
-    <button id='setAllAccounts'>Set All Owned Accounts</button>
-  </div>` + rowTable(['ID','Owner','Money'], accounts.slice(0,300).map(a=>`<tr><td>${a.id}</td><td>${a.owner}</td><td>${a.money}</td></tr>`));
-}
-
-function renderRelations() {
-  const rel = state.model?.relations || [];
-  return `<div class='card'><h3>Faction Relations</h3>
-  <button data-bulk='20'>Set all Friendly (+20)</button>
-  <button data-bulk='0'>Set all Neutral (0)</button>
-  </div>` + rowTable(['Faction','Current','New'], rel.map(r=>`<tr><td>${r.factionId}</td><td>${r.value}</td><td><input data-faction='${r.factionId}' type='number' min='-30' max='30' value='${r.value}' /></td></tr>`));
-}
-
-function renderSkills() {
-  const npcs = state.model?.npcs || [];
-  const disabled = npcs.length === 0 ? 'disabled' : '';
-  return `<div class='card'><h3>Crew Skills</h3>
-  <button id='pilots5' ${disabled}>Set all pilots to 5★ piloting</button>
-  <button id='managers5' ${disabled}>Set all managers to 5★ management</button>
-  <button id='morale5' ${disabled}>Set morale 5★ all</button>
-  </div>` + rowTable(['Name','Role','Owner','Piloting','Management','Morale'], npcs.slice(0,1000).map(n=>`<tr><td>${n.name}</td><td>${n.role}</td><td>${n.owner}</td><td>${n.skills.piloting||0}</td><td>${n.skills.management||0}</td><td>${n.skills.morale||0}</td></tr>`));
+  if (!state.model) return '<div class="card">Import a save to edit credits.</div>';
+  const c = state.model.credits;
+  return `
+    <div class="card">
+      <h3>Verified credits anchors</h3>
+      <p>Player: <strong>${c.playerName || '(unknown)'}</strong> @ ${c.playerLocation || '(unknown)'}</p>
+      <p>Anchor A - player money: <code>${c.playerMoney || '(missing)'}</code></p>
+      <p>Anchor B - stat money_player: <code>${c.statMoneyPlayer || '(missing)'}</code></p>
+      <p>Anchor C - wallet account id: <code>${c.playerWalletAccountId || '(missing)'}</code></p>
+      <p>Anchor D - wallet occurrences: <code>${c.walletAccountOccurrences}</code></p>
+      <label>New credits <input id="creditsValue" type="number" min="0" step="1" value="${c.playerMoney || 0}"/></label>
+      <button id="queueCredits">Queue SetCredits</button>
+    </div>
+  `;
 }
 
 function renderBlueprints() {
-  const b = state.model?.blueprints || [];
-  const disabled = b.length === 0 ? 'disabled' : '';
-  return `<div class='card'><h3>Blueprints</h3>
-  <button data-unlock='station' ${disabled}>Unlock station modules</button>
-  <button data-unlock='ship' ${disabled}>Unlock ship blueprints</button>
-  <button data-unlock='equipment' ${disabled}>Unlock equipment</button>
-  <button data-unlock='all' ${disabled}>Unlock everything</button>
-  </div>` + rowTable(['Blueprint','Category','Unlocked'], b.slice(0,1500).map(x=>`<tr><td>${x.id}</td><td>${x.category}</td><td>${x.unlocked}</td></tr>`));
+  if (!state.model) return '<div class="card">Import a save to edit blueprints.</div>';
+  return `
+    <div class="card">
+      <h3>Blueprint unlock (idempotent)</h3>
+      <p>Owned wares: ${state.model.blueprints.owned.length}</p>
+      <textarea id="blueprintWares" rows="4" style="width:100%" placeholder="ware ids, one per line"></textarea>
+      <button id="queueBlueprints">Queue UnlockBlueprintWares</button>
+    </div>
+  `;
 }
 
-function renderInventory() {
-  const inv = state.model?.inventory || [];
-  const dictionaryItems = state.dictionaries?.items || [];
-  const knownItemIds = [...new Set([...dictionaryItems.map((item) => item.id), ...inv.map((item) => item.itemId)])].sort();
-  const itemSuggestions = knownItemIds.slice(0, 500).map((id) => `<option value='${id}'></option>`).join('');
+function renderRelations() {
+  if (!state.model) return '<div class="card">Import a save to edit relations.</div>';
+  const rows = state.model.relations.player.map((entry) => `
+    <tr>
+      <td>${entry.targetFactionId}</td>
+      <td>${entry.value}</td>
+      <td><input type="number" min="-30" max="30" data-rep="${entry.targetFactionId}" value="${Math.round(Number(entry.value) * 30)}"></td>
+    </tr>
+  `).join('');
 
-  return `<div class='card'><h3>Inventory</h3>
-    <p>You can type an item ID manually, or pick from known IDs in the dropdown suggestions.</p>
-    <input id='itemId' list='itemIds' placeholder='item id' />
-    <datalist id='itemIds'>${itemSuggestions}</datalist>
-    <input id='itemAmount' type='number' min='0' placeholder='amount' />
-    <button id='setItem'>Set item amount</button>
-  </div>` + rowTable(['Item','Amount'], inv.map(i=>`<tr><td>${i.itemId}</td><td>${i.amount}</td></tr>`));
+  return `
+    <div class="card">
+      <h3>Set faction relation (player↔faction)</h3>
+      <div>
+        <input id="relationFaction" placeholder="faction id e.g. argon"/>
+        <input id="relationRep" type="number" min="-30" max="30" value="30"/>
+        <button id="queueRelation">Queue SetFactionRelation</button>
+      </div>
+      <table class="table"><thead><tr><th>Faction</th><th>File value [-1..1]</th><th>Queue repUI [-30..30]</th></tr></thead><tbody>${rows}</tbody></table>
+    </div>
+  `;
 }
 
-function renderObjects() {
-  const objects = state.model?.objects || [];
-  return `<div class='card'><h3>Objects</h3><p>Danger zone actions require confirmation in UI event.</p></div>` + rowTable(['Object','Code','Class','Owner','Sector','Actions'], objects.slice(0,2000).map(o=>`<tr><td>${o.objectId}</td><td>${o.code}</td><td>${o.class}</td><td>${o.owner}</td><td>${o.sector}</td><td><button data-owner='${o.objectId}'>Change owner</button> <button class='danger' data-delete='${o.objectId}'>Delete</button></td></tr>`));
+function renderLicences() {
+  if (!state.model) return '<div class="card">Import a save to edit licences.</div>';
+  const rows = state.model.licences.map((licence) => `<tr><td>${licence.type}</td><td>${licence.factions}</td></tr>`).join('');
+  return `
+    <div class="card">
+      <h3>Player licences</h3>
+      <table class="table"><thead><tr><th>Type</th><th>Factions</th></tr></thead><tbody>${rows}</tbody></table>
+    </div>
+    <div class="card">
+      <h3>Licence operations</h3>
+      <div><input id="licType" placeholder="licence type"/> <input id="licFaction" placeholder="faction id"/></div>
+      <button id="addLicFaction">AddLicenceFaction</button>
+      <button id="removeLicFaction">RemoveLicenceFaction</button>
+      <hr/>
+      <div><input id="newLicType" placeholder="new licence type"/> <input id="newLicFactions" placeholder="factions space-separated" style="min-width:260px"/></div>
+      <button id="addLicType">AddLicenceType</button>
+      <button id="removeLicType">RemoveLicenceType</button>
+    </div>
+  `;
 }
 
 function renderChanges() {
-  return `<div class='card'><h3>Diff Preview / Patches</h3><button id='resetChanges'>Reset all changes</button>
-  ${rowTable(['Type','Patch'], state.patches.map((p)=>`<tr><td>${p.type}</td><td><code>${JSON.stringify(p)}</code></td></tr>`))}</div>`;
+  return `<div class="card"><h3>Queued changes (${state.patches.length})</h3><pre>${JSON.stringify(state.patches, null, 2)}</pre><button id="clearPatches">Clear changes</button></div>`;
 }
 
 function renderExport() {
-  return `<div class='card'><h3>Export</h3>
-  <label><input type='checkbox' id='compressOut' checked /> Export as .xml.gz</label><br/>
-  <label><input type='checkbox' id='backupOut' checked /> Create backup</label><br/>
-  <button id='exportBtn'>Export modified save</button>
-  <p>Warnings: this can mark saves as modified. Always keep backups.</p>
-  </div>`;
+  const disabled = state.model ? '' : 'disabled';
+  return `
+    <div class="card">
+      <h3>Export</h3>
+      <label><input id="compressOut" type="checkbox" checked> GZip output</label><br/>
+      <label><input id="backupOut" type="checkbox" checked> Create source backup (.backup)</label><br/>
+      <button id="exportBtn" ${disabled}>Export patched save</button>
+    </div>
+  `;
 }
 
 function render() {
   renderTabs();
-  const map = { Overview: renderOverview, Credits: renderCredits, Relations: renderRelations, Skills: renderSkills, Blueprints: renderBlueprints, Inventory: renderInventory, Objects: renderObjects, Changes: renderChanges, Export: renderExport };
-  main.innerHTML = map[state.activeTab]();
+  const content = {
+    Overview: renderOverview,
+    Credits: renderCredits,
+    Blueprints: renderBlueprints,
+    Relations: renderRelations,
+    Licences: renderLicences,
+    'Changes Preview': renderChanges,
+    Export: renderExport
+  }[state.activeTab]();
+  main.innerHTML = content;
   wireEvents();
 }
 
 function wireEvents() {
-  document.querySelector('#setPlayerCredits')?.addEventListener('click', () => {
-    const value = Number(document.querySelector('#playerCredits').value);
-    pushPatch({ type: 'SetCredits', scope: 'player', value });
+  document.getElementById('queueCredits')?.addEventListener('click', () => {
+    if (!canEdit()) return;
+    const value = Number(document.getElementById('creditsValue').value);
+    if (!Number.isInteger(value) || value < 0) return setStatus('Credits must be integer >= 0');
+    pushPatch({ type: 'SetCredits', value });
+    setStatus('Queued SetCredits');
   });
-  document.querySelector('#setAllAccounts')?.addEventListener('click', () => {
-    const value = Number(document.querySelector('#playerCredits').value);
-    pushPatch({ type: 'SetCredits', scope: 'allOwnedAccounts', value });
+
+  document.getElementById('queueBlueprints')?.addEventListener('click', () => {
+    if (!canEdit()) return;
+    const wares = document.getElementById('blueprintWares').value.split('\n').map((s) => s.trim()).filter(Boolean);
+    if (!wares.length) return setStatus('Provide at least one ware id.');
+    pushPatch({ type: 'UnlockBlueprintWares', wares });
+    setStatus(`Queued ${wares.length} blueprint unlock(s)`);
   });
-  document.querySelectorAll('input[data-faction]').forEach((el)=>el.addEventListener('change', ()=>pushPatch({type:'SetFactionRep', factionId: el.dataset.faction, rep:Number(el.value)})));
-  document.querySelectorAll('button[data-bulk]').forEach((btn)=>btn.addEventListener('click', ()=>{
-    if (!requireModelLoaded('bulk relation actions')) return;
-    replacePatches([...state.patches, ...state.model.relations.map(r=>({type:'SetFactionRep', factionId:r.factionId, rep:Number(btn.dataset.bulk)}))]);
-    setStatus('Queued bulk relation patches');
-  }));
-  document.querySelector('#pilots5')?.addEventListener('click', ()=>{
-    if (!requireModelLoaded('crew skill actions')) return;
-    pushPatch({type:'SetSkills', filter:{role:'pilot'}, changes:{piloting:5}});
+
+  document.getElementById('queueRelation')?.addEventListener('click', () => {
+    if (!canEdit()) return;
+    const factionId = document.getElementById('relationFaction').value.trim();
+    const repUI = Number(document.getElementById('relationRep').value);
+    if (!factionId) return setStatus('Faction id is required.');
+    pushPatch({ type: 'SetFactionRelation', factionId, repUI });
+    setStatus(`Queued relation patch for ${factionId}`);
   });
-  document.querySelector('#managers5')?.addEventListener('click', ()=>{
-    if (!requireModelLoaded('crew skill actions')) return;
-    pushPatch({type:'SetSkills', filter:{role:'manager'}, changes:{management:5}});
+
+  document.querySelectorAll('input[data-rep]').forEach((input) => {
+    input.addEventListener('change', () => {
+      if (!canEdit()) return;
+      pushPatch({ type: 'SetFactionRelation', factionId: input.dataset.rep, repUI: Number(input.value) });
+      setStatus(`Queued relation patch for ${input.dataset.rep}`);
+    });
   });
-  document.querySelector('#morale5')?.addEventListener('click', ()=>{
-    if (!requireModelLoaded('crew skill actions')) return;
-    pushPatch({type:'SetSkills', filter:{role:'all'}, changes:{morale:5}});
+
+  document.getElementById('addLicFaction')?.addEventListener('click', () => {
+    if (!canEdit()) return;
+    pushPatch({ type: 'AddLicenceFaction', typeName: document.getElementById('licType').value.trim(), factionId: document.getElementById('licFaction').value.trim() });
   });
-  document.querySelectorAll('button[data-unlock]').forEach((btn)=>btn.addEventListener('click', ()=>{
-    if (!requireModelLoaded('blueprint actions')) return;
-    const kind = btn.dataset.unlock;
-    const ids = state.model.blueprints.filter((b)=>kind==='all'||b.category===kind).map((b)=>b.id);
-    if (ids.length === 0) {
-      setStatus(`No blueprints found for category: ${kind}`);
-      return;
+  document.getElementById('removeLicFaction')?.addEventListener('click', () => {
+    if (!canEdit()) return;
+    pushPatch({ type: 'RemoveLicenceFaction', typeName: document.getElementById('licType').value.trim(), factionId: document.getElementById('licFaction').value.trim() });
+  });
+  document.getElementById('addLicType')?.addEventListener('click', () => {
+    if (!canEdit()) return;
+    const factions = document.getElementById('newLicFactions').value.split(/\s+/).map((s) => s.trim()).filter(Boolean);
+    pushPatch({ type: 'AddLicenceType', typeName: document.getElementById('newLicType').value.trim(), factions });
+  });
+  document.getElementById('removeLicType')?.addEventListener('click', () => {
+    if (!canEdit()) return;
+    pushPatch({ type: 'RemoveLicenceType', typeName: document.getElementById('newLicType').value.trim() });
+  });
+
+  document.getElementById('clearPatches')?.addEventListener('click', () => {
+    state.patches = [];
+    state.undo = [];
+    state.redo = [];
+    setStatus('Cleared queued changes.');
+    render();
+  });
+
+  document.getElementById('exportBtn')?.addEventListener('click', async () => {
+    if (!canEdit()) return;
+    try {
+      setStatus('Exporting...');
+      const result = await window.x4api.exportSave({
+        sourcePath: state.sourcePath,
+        patches: state.patches,
+        compress: document.getElementById('compressOut').checked,
+        createBackup: document.getElementById('backupOut').checked
+      });
+      setStatus(result ? `Exported to ${result.outputPath}` : 'Export canceled');
+    } catch (err) {
+      setStatus(`Export failed: ${err.message}`);
     }
-    pushPatch({type:'UnlockBlueprints', blueprintIds:ids});
-    setStatus(`Queued unlock for ${ids.length} blueprint(s)`);
-  }));
-  document.querySelector('#setItem')?.addEventListener('click', ()=>pushPatch({type:'SetInventoryItem', itemId:document.querySelector('#itemId').value, amount:Number(document.querySelector('#itemAmount').value)}));
-  document.querySelectorAll('button[data-owner]').forEach((btn)=>btn.addEventListener('click', ()=>{
-    const nextOwner = prompt('Enter new owner faction ID');
-    if (nextOwner) pushPatch({type:'ChangeOwner', objectId:btn.dataset.owner, newOwnerFactionId:nextOwner});
-  }));
-  document.querySelectorAll('button[data-delete]').forEach((btn)=>btn.addEventListener('click', ()=>{
-    const confirmText = prompt('Type DELETE to confirm object deletion');
-    if (confirmText === 'DELETE') pushPatch({type:'DeleteObject', objectId:btn.dataset.delete});
-  }));
-  document.querySelector('#resetChanges')?.addEventListener('click', ()=>{ state.patches=[]; state.undo=[]; state.redo=[]; render(); });
-  document.querySelector('#exportBtn')?.addEventListener('click', async ()=>{
-    if (!state.model) return;
-    const compress = document.querySelector('#compressOut').checked;
-    const createBackup = document.querySelector('#backupOut').checked;
-    setStatus('Exporting...');
-    const result = await window.x4api.exportSave({ sourcePath: state.sourcePath, patches: state.patches, compress, createBackup });
-    setStatus(result ? `Exported to ${result.outputPath}` : 'Export canceled');
   });
 }
 
@@ -210,15 +255,21 @@ document.getElementById('redoBtn').onclick = () => {
 };
 
 document.getElementById('importBtn').onclick = async () => {
-  setStatus('Importing and indexing...');
-  const response = await window.x4api.importSave();
-  if (!response) return setStatus('Import canceled');
-  state.model = response.index;
-  state.sourcePath = response.filePath;
-  document.getElementById('saveMeta').textContent = response.filePath;
-  setStatus('Index built successfully');
-  render();
+  setStatus('Importing...');
+  try {
+    const response = await window.x4api.importSave();
+    if (!response) return setStatus('Import canceled');
+    state.model = response.index;
+    state.sourcePath = response.filePath;
+    state.patches = [];
+    state.undo = [];
+    state.redo = [];
+    document.getElementById('saveMeta').textContent = response.filePath;
+    setStatus('Indexed save successfully.');
+    render();
+  } catch (err) {
+    setStatus(`Import failed: ${err.message}`);
+  }
 };
 
-window.x4api.loadDictionaries().then((dict) => { state.dictionaries = dict; setStatus('Dictionaries loaded'); render(); });
 render();
