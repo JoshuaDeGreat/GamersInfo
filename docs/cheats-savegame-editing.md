@@ -117,6 +117,19 @@ objects the player can use, like the repair laser for the space suit.
 [inventory-items.xml][]
 
 
+
+### Inventory mode behavior in this app
+
+When using the Inventory tab in this editor:
+
+- **Add** mode queues an additive patch (`AddInventoryItem`), so the entered value is added to the current ware amount.
+- **Set** mode queues an absolute patch (`SetInventoryItem`), so the entered value becomes the exact final ware amount.
+
+Examples:
+
+- Current amount `2`, queued value `3` in **Add** mode → final `5`.
+- Current amount `2`, queued value `3` in **Set** mode → final `3`.
+
 ## Online documentation
 
 - Primer on editing, and lots of details: https://forum.egosoft.com/viewtopic.php?t=350404
@@ -125,11 +138,11 @@ objects the player can use, like the repair laser for the space suit.
 
 
 
-[blueprint-ids.xml]: /blueprint-ids.xml
-[modparts.xml]: /modparts.xml
-[inventory-items.xml]: /inventory-items.xml
+[blueprint-ids.xml]: /assets/source/blueprint-ids.xml
+[modparts.xml]: /assets/source/modparts.xml
+[inventory-items.xml]: /assets/source/inventory-items.xml
 [ship-production-chain.md]: /ship-production-chain.md
-[cheats-savegame-editing.md]: /cheats-savegame-editing.md
+[cheats-savegame-editing.md]: /docs/cheats-savegame-editing.md
 [station-building.md]: /station-building.md
 [getting-the-erlking.md]: /getting-the-erlking.md
 [x4-core]: https://github.com/Mistralys/x4-core
