@@ -34,7 +34,9 @@ async function exportPatchedSave({ sourcePath, outputPath, patches, compress = t
     blueprintsInserted: 0,
     relationsInserted: 0,
     boostersDeleted: 0,
-    licencesInserted: 0
+    licencesInserted: 0,
+    playerNamesUpdated: 0,
+    modifiedFlagsUpdated: 0
   };
 
   await new Promise((resolve, reject) => {
@@ -67,6 +69,8 @@ async function exportPatchedSave({ sourcePath, outputPath, patches, compress = t
     let inPlayerInventory = false;
     const seenInventoryWares = new Set();
 
+    let inInfo = false;
+
     parser.on('processinginstruction', (pi) => {
       if (!skipStack.length) output.write(`<?${pi.name} ${pi.body}?>`);
     });
@@ -76,6 +80,8 @@ async function exportPatchedSave({ sourcePath, outputPath, patches, compress = t
       const attrs = { ...node.attributes };
       stack.push(n);
       const parent = stack[stack.length - 2];
+
+      if (n === 'info') inInfo = true;
 
       if (skipStack.length) {
         skipStack.push(n);
@@ -95,6 +101,16 @@ async function exportPatchedSave({ sourcePath, outputPath, patches, compress = t
         inPlayerFaction = currentFactionId === 'player';
         if (inPlayerFaction) playerFactionSeen = true;
         if (normalized.relations.has(currentFactionId)) relationFactionSeen.add(currentFactionId);
+      }
+
+
+      if (n === 'player' && inInfo && normalized.setPlayerName !== null) {
+        attrs.name = normalized.setPlayerName;
+        stats.playerNamesUpdated += 1;
+      }
+      if (n === 'game' && inInfo && normalized.setModifiedFlag !== null) {
+        attrs.modified = String(normalized.setModifiedFlag);
+        stats.modifiedFlagsUpdated += 1;
       }
 
       if (n === 'player' && normalized.setCredits !== null && attrs.money !== undefined) {
@@ -268,6 +284,8 @@ async function exportPatchedSave({ sourcePath, outputPath, patches, compress = t
         inPlayerLicences = false;
       }
 
+      if (n === 'info') inInfo = false;
+
       if (n === 'faction') {
         if (inPlayerFaction && !playerLicencesSeen && hasLicencePatches(normalized)) {
           const createdTypes = new Set();
@@ -334,6 +352,8 @@ async function exportPatchedSave({ sourcePath, outputPath, patches, compress = t
     creditsPatched: normalized.setCredits !== null,
     walletAccountId: index.credits.playerWalletAccountId,
     walletAccountOccurrences: index.credits.walletAccountOccurrences,
+    playerNamePatched: normalized.setPlayerName !== null,
+    modifiedFlagPatched: normalized.setModifiedFlag !== null,
     summary: stats
   };
 }

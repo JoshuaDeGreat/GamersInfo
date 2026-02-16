@@ -7,7 +7,25 @@ async function buildIndex(filePath) {
     const input = createInputStream(filePath);
 
     const model = {
-      metadata: { filePath, parsedAt: new Date().toISOString(), saveName: '', saveDate: '' },
+      metadata: {
+        filePath,
+        parsedAt: new Date().toISOString(),
+        saveName: '',
+        saveDate: '',
+        gameId: '',
+        gameVersion: '',
+        gameBuild: '',
+        modified: null,
+        time: '',
+        code: '',
+        original: '',
+        originalBuild: '',
+        start: '',
+        seed: '',
+        guid: '',
+        playerName: '',
+        extensions: { active: [], history: [] }
+      },
       credits: {
         playerName: '',
         playerLocation: '',
@@ -38,14 +56,54 @@ async function buildIndex(filePath) {
     let playerComponentDepth = -1;
     let inPlayerInventory = false;
 
+    let inInfo = false;
+    let inInfoPatches = false;
+    let inInfoPatchHistory = false;
+
     parser.on('opentag', (node) => {
       const name = node.name.toLowerCase();
       const attrs = node.attributes;
       stack.push(name);
 
-      if (name === 'save' && attrs.name !== undefined && stack.includes('info')) {
+      if (name === 'info') inInfo = true;
+      if (name === 'patches' && inInfo) inInfoPatches = true;
+      if (name === 'history' && inInfoPatches) inInfoPatchHistory = true;
+
+      if (name === 'save' && attrs.name !== undefined && inInfo) {
         model.metadata.saveName = String(attrs.name);
         model.metadata.saveDate = String(attrs.date ?? '');
+      }
+
+
+      if (name === 'game' && inInfo) {
+        model.metadata.gameId = String(attrs.id ?? '');
+        model.metadata.gameVersion = String(attrs.version ?? '');
+        model.metadata.gameBuild = String(attrs.build ?? '');
+        model.metadata.modified = attrs.modified === undefined ? null : String(attrs.modified) === '1';
+        model.metadata.time = String(attrs.time ?? '');
+        model.metadata.code = String(attrs.code ?? '');
+        model.metadata.original = String(attrs.original ?? '');
+        model.metadata.originalBuild = String(attrs.originalbuild ?? '');
+        model.metadata.start = String(attrs.start ?? '');
+        model.metadata.seed = String(attrs.seed ?? '');
+        model.metadata.guid = String(attrs.guid ?? '');
+      }
+
+      if (name === 'player' && inInfo) {
+        model.metadata.playerName = String(attrs.name ?? '');
+      }
+
+      if (name === 'patch' && inInfoPatches) {
+        const extensionId = String(attrs.extension ?? '').trim();
+        if (extensionId) {
+          const patchInfo = {
+            id: extensionId,
+            version: String(attrs.version ?? ''),
+            name: String(attrs.name ?? '')
+          };
+          if (inInfoPatchHistory) model.metadata.extensions.history.push(patchInfo);
+          else model.metadata.extensions.active.push(patchInfo);
+        }
       }
 
       if (name === 'player' && attrs.money !== undefined && !model.credits.playerMoney) {
@@ -143,6 +201,9 @@ async function buildIndex(filePath) {
       stack.pop();
 
       if (name === 'licences') inPlayerLicences = false;
+      if (name === 'history' && inInfoPatchHistory) inInfoPatchHistory = false;
+      if (name === 'patches' && inInfoPatches) inInfoPatches = false;
+      if (name === 'info') inInfo = false;
       if (name === 'inventory') inPlayerInventory = false;
       if (name === 'component' && inPlayerComponent && stack.length < playerComponentDepth) {
         inPlayerComponent = false;
@@ -157,6 +218,8 @@ async function buildIndex(filePath) {
     parser.on('error', reject);
     parser.on('end', () => {
       model.blueprints.owned = Array.from(new Set(model.blueprints.owned));
+      model.metadata.extensions.active = Array.from(new Map(model.metadata.extensions.active.map((item) => [item.id, item])).values());
+      model.metadata.extensions.history = Array.from(new Map(model.metadata.extensions.history.map((item) => [item.id, item])).values());
       model.inventory.playerList = Object.entries(model.inventory.player).map(([ware, amount]) => ({ ware, amount }));
 
       const allFactions = new Set();

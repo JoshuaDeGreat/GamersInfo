@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<savegame>
+  <info>
+    <save name="#002" date="1771111771"></save>
+    <game id="X4" version="800" build="590967" modified="1" time="218794.267" code="1992704" original="800" originalbuild="580735" start="x4ep1_gamestart_intro" seed="132260179" guid="161925A7-6EBC-4535-8AD9-440834D2DEDE"></game>
+    <player name="Juro Topeka" location="{20004,290021}" money="50000000"></player>
+    <patches>
+      <patch extension="ego_dlc_mini_02" version="800" name="Envoy Pack"></patch>
+      <patch extension="ego_dlc_mini_01" version="800" name="Hyperion Pack"></patch>
+      <history>
+        <patch extension="ego_dlc_mini_02" version="800" name="Envoy Pack"></patch>
+      </history>
+    </patches>
+  </info>
+  <statistics><stat id="money_player" value="50000000"></stat></statistics>
+</savegame>
