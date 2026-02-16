@@ -8,8 +8,9 @@ const state = {
   patches: [],
   undo: [],
   redo: [],
-  dicts: { blueprints: {}, items: {}, factions: [], presets: { modparts: { name: 'Common Mod Parts Pack', items: [] } }, helpText: '' },
+  dicts: { blueprints: {}, items: {}, factionsById: {}, presets: { modparts: { name: 'Common Mod Parts Pack', items: [] } }, helpText: '' },
   filters: { blueprintSearch: '', blueprintCategory: 'All', itemSearch: '', itemCategory: 'All', inventoryMode: 'set' },
+  ui: { selectedLicenceFactionId: '', newLicenceType: '' },
   exportResult: null
 };
 
@@ -18,6 +19,7 @@ const main = document.getElementById('main');
 
 function setStatus(text) { document.getElementById('statusText').textContent = text; renderStatusBar(); }
 function hasUnsaved() { return state.patches.length > 0; }
+function hasPlayerFaction() { return Boolean(state.model?.licencesModel?.playerFactionFound); }
 
 function renderStatusBar() {
   const m = state.model;
@@ -29,7 +31,20 @@ function renderStatusBar() {
 
 function pushPatch(patch) { state.undo.push(structuredClone(state.patches)); state.redo = []; state.patches.push(patch); render(); }
 function resetChanges() { state.patches = []; state.undo = []; state.redo = []; render(); }
+function resetLicencePanel() {
+  state.ui.newLicenceType = '';
+  if (state.model?.licencesModel?.allFactionsInLicences?.length) {
+    state.ui.selectedLicenceFactionId = state.model.licencesModel.allFactionsInLicences[0];
+  } else {
+    state.ui.selectedLicenceFactionId = '';
+  }
+  render();
+}
 function canEdit() { if (state.model) return true; setStatus('Import a save first.'); return false; }
+
+function factionLabel(factionId) {
+  return state.dicts.factionsById[factionId] || factionId;
+}
 
 function renderTabs() {
   tabNav.innerHTML = tabs.map((tab) => `<button class="tab-btn ${state.activeTab === tab ? 'active' : ''}" data-tab="${tab}">${tab}</button>`).join('');
@@ -41,7 +56,7 @@ function warningPanel() {
 }
 
 function renderOverview() {
-  if (!state.model) return `<div class="card">Import an XML/XML.GZ save to start indexing.</div>`;
+  if (!state.model) return '<div class="card">Import an XML/XML.GZ save to start indexing.</div>';
   const m = state.model;
   return `${warningPanel()}<div class="card"><h3>Save Header</h3><p><strong>Name:</strong> ${m.metadata.saveName || '(unknown)'}</p><p><strong>Date:</strong> ${m.metadata.saveDate || '(unknown)'}</p><p><strong>File:</strong> ${state.sourcePath}</p></div>`;
 }
@@ -74,7 +89,7 @@ function renderVirtualRows(containerId, rows, renderRow) {
 function renderBlueprints() {
   if (!state.model) return '<div class="card">Import a save to edit blueprints.</div>';
   const categories = ['All', ...new Set(Object.values(state.dicts.blueprints).map((item) => item.category))];
-  return `<div class="card"><h3>Blueprints</h3><div class="row"><input id="bpSearch" placeholder="Search name or ware id" value="${state.filters.blueprintSearch}"/><select id="bpCategory">${categories.map((c) => `<option ${c === state.filters.blueprintCategory ? 'selected' : ''}>${c}</option>`).join('')}</select><button id="unlockAll">Unlock All</button><button id="unlockCategory">Unlock All in Category</button></div><div class="thead"><span>Name</span><span>Ware ID</span><span>Category</span><span>Owned</span></div><div id="bpList" class="vlist"></div></div>`;
+  return `<div class="card"><h3>Blueprints</h3><div class="row"><input id="bpSearch" placeholder="Search name or ware id" value="${state.filters.blueprintSearch}"/><select id="bpCategory">${categories.map((c) => `<option ${c === state.filters.blueprintCategory ? 'selected' : ''}>${c}</option>`).join('')}</select><button id="unlockAll">Unlock All</button><button id="unlockCategory">Unlock All in Category</button><button id="addBlueprintSingle">Add selected blueprint…</button></div><div class="thead"><span>Name</span><span>Ware ID</span><span>Category</span><span>Owned</span></div><div id="bpList" class="vlist"></div></div>`;
 }
 
 function renderInventory() {
@@ -84,15 +99,67 @@ function renderInventory() {
 }
 
 function renderCredits() { if (!state.model) return '<div class="card">Import a save to edit credits.</div>'; const c = state.model.credits; return `<div class="card"><h3>Credits</h3><p>Player money: ${c.playerMoney}</p><input id="creditsValue" type="number" min="0" step="1" value="${c.playerMoney || 0}"/><button id="queueCredits">Queue SetCredits</button></div>`; }
+
 function renderRelations() {
   if (!state.model) return '<div class="card">Import a save to edit relations.</div>';
-  const rows = state.model.relations.player.map((entry) => `<tr><td>${entry.targetFactionId}</td><td>${entry.value}</td><td><input type="number" min="-30" max="30" data-rep="${entry.targetFactionId}" value="${Math.round(Number(entry.value) * 30)}"></td></tr>`).join('');
-  return `<div class="card"><h3>Set faction relation</h3><input id="relationFaction" placeholder="faction id"/><input id="relationRep" type="number" min="-30" max="30" value="30"/><button id="queueRelation">Queue SetFactionRelation</button><table class="table"><thead><tr><th>Faction</th><th>File</th><th>Queue rep</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  const factionIds = Object.keys(state.dicts.factionsById).sort();
+  const rows = state.model.relations.player.map((entry) => `<tr><td>${factionLabel(entry.targetFactionId)}</td><td>${entry.value}</td><td><input type="number" min="-30" max="30" data-rep="${entry.targetFactionId}" value="${Math.round(Number(entry.value) * 30)}"></td></tr>`).join('');
+  return `<div class="card"><h3>Set faction relation</h3><input id="relationFaction" list="relationFactions" placeholder="faction id"/><datalist id="relationFactions">${factionIds.map((id) => `<option value="${id}">${factionLabel(id)}</option>`).join('')}</datalist><input id="relationRep" type="number" min="-30" max="30" value="30"/><button id="queueRelation">Queue SetFactionRelation</button><table class="table"><thead><tr><th>Faction</th><th>File</th><th>Queue rep</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
+
+function licenceStateFromModelAndPatches() {
+  const base = state.model?.licencesModel || { licencesByType: {}, allLicenceTypes: [], allFactionsInLicences: [] };
+  const byType = new Map(Object.entries(base.licencesByType || {}).map(([typeName, ids]) => [typeName, new Set(ids)]));
+  for (const patch of state.patches) {
+    if (patch.type === 'AddLicenceType') {
+      byType.set((patch.typeName || '').trim(), new Set(patch.factions || []));
+    }
+    if (patch.type === 'RemoveLicenceType') {
+      byType.delete((patch.typeName || '').trim());
+    }
+    if (patch.type === 'AddLicenceFaction') {
+      const typeName = (patch.typeName || '').trim();
+      if (!byType.has(typeName)) byType.set(typeName, new Set());
+      byType.get(typeName).add((patch.factionId || '').trim());
+    }
+    if (patch.type === 'RemoveLicenceFaction') {
+      const typeName = (patch.typeName || '').trim();
+      if (!byType.has(typeName)) byType.set(typeName, new Set());
+      byType.get(typeName).delete((patch.factionId || '').trim());
+    }
+  }
+
+  const allTypes = Array.from(byType.keys()).sort();
+  const allFactions = new Set(base.allFactionsInLicences || []);
+  for (const factionSet of byType.values()) for (const id of factionSet) allFactions.add(id);
+  return { byType, allTypes, allFactions: Array.from(allFactions).filter(Boolean).sort() };
+}
+
 function renderLicences() {
   if (!state.model) return '<div class="card">Import a save to edit licences.</div>';
-  const rows = state.model.licences.map((l) => `<tr><td>${l.type}</td><td>${l.factions}</td></tr>`).join('');
-  return `<div class="card"><h3>Player licences</h3><table class="table"><thead><tr><th>Type</th><th>Factions</th></tr></thead><tbody>${rows}</tbody></table></div><div class="card"><input id="licType" placeholder="licence type"/> <input id="licFaction" placeholder="faction id"/><button id="addLicFaction">AddLicenceFaction</button><button id="removeLicFaction">RemoveLicenceFaction</button><br/><input id="newLicType" placeholder="new licence type"/> <input id="newLicFactions" placeholder="factions"/><button id="addLicType">AddLicenceType</button><button id="removeLicType">RemoveLicenceType</button></div>`;
+  if (!hasPlayerFaction()) return '<div class="card"><h3>Licences</h3><p>Cannot edit licences: &lt;faction id="player"&gt; not found in this save.</p></div>';
+
+  const { byType, allTypes, allFactions } = licenceStateFromModelAndPatches();
+  if (!state.ui.selectedLicenceFactionId || !allFactions.includes(state.ui.selectedLicenceFactionId)) {
+    state.ui.selectedLicenceFactionId = allFactions[0] || '';
+  }
+
+  if (!state.model.licencesModel.licencesBlockFound && allTypes.length === 0) {
+    return '<div class="card"><h3>Licences</h3><p>No licences block found.</p></div>';
+  }
+
+  const factionButtons = allFactions.length
+    ? allFactions.map((id) => `<button class="tab-btn ${state.ui.selectedLicenceFactionId === id ? 'active' : ''}" data-lic-faction="${id}">${factionLabel(id)}</button>`).join('')
+    : '<p>No factions found in licences yet.</p>';
+
+  const typeRows = allTypes.length
+    ? allTypes.map((typeName) => {
+      const checked = byType.get(typeName)?.has(state.ui.selectedLicenceFactionId) ? 'checked' : '';
+      return `<label class="licence-row"><input type="checkbox" data-lic-toggle="${typeName}" ${checked}/> <span>${typeName}</span></label>`;
+    }).join('')
+    : '<p>No licence types discovered.</p>';
+
+  return `<div class="card licence-layout"><div class="licence-factions"><h3>Factions</h3>${factionButtons}</div><div><h3>Licences for ${factionLabel(state.ui.selectedLicenceFactionId) || '(select faction)'}</h3>${!state.model.licencesModel.licencesBlockFound ? '<p class="banner">No licences block found in source save. New licences will be inserted on export.</p>' : ''}${typeRows}<div class="row" style="margin-top:10px"><input id="newLicType" placeholder="new licence type" value="${state.ui.newLicenceType}"/><button id="addLicType">Add licence type…</button><button id="resetLicPanel">Reset changes</button></div></div></div>`;
 }
 
 function groupedPatches() {
@@ -115,7 +182,7 @@ function renderChanges() {
 function renderExport() {
   const disabled = state.model ? '' : 'disabled';
   const summary = state.exportResult?.summary;
-  return `${warningPanel()}<div class="card"><h3>Export</h3><label><input id="compressOut" type="checkbox" checked> Output .xml.gz</label><br/><label><input id="backupOut" type="checkbox" checked> Create backup</label><br/><button id="exportBtn" ${disabled}>Export patched save</button>${state.exportResult ? `<p>Output: ${state.exportResult.outputPath}</p><p>Credits anchors updated: ${summary.creditsAnchorsUpdated}; Wallet accounts updated: ${summary.walletAccountsUpdated}; Blueprints inserted: ${summary.blueprintsInserted}; Relations inserted: ${summary.relationsInserted}</p>` : ''}</div>`;
+  return `${warningPanel()}<div class="card"><h3>Export</h3><label><input id="compressOut" type="checkbox" checked> Output .xml.gz</label><br/><label><input id="backupOut" type="checkbox" checked> Create backup</label><br/><button id="exportBtn" ${disabled}>Export patched save</button>${state.exportResult ? `<p>Output: ${state.exportResult.outputPath}</p><p>Credits anchors updated: ${summary.creditsAnchorsUpdated}; Wallet accounts updated: ${summary.walletAccountsUpdated}; Blueprints inserted: ${summary.blueprintsInserted}; Relations inserted: ${summary.relationsInserted}; Licences inserted: ${summary.licencesInserted}</p>` : ''}</div>`;
 }
 
 function queueInventoryPatch(ware, amount) {
@@ -138,7 +205,7 @@ function render() {
   if (state.activeTab === 'Blueprints') {
     const rows = filteredBlueprintRows();
     const list = document.getElementById('bpList');
-    const draw = () => renderVirtualRows('bpList', rows, (r) => `<span>${r.name}</span><span>${r.ware}</span><span>${r.category}</span><span>${r.owned ? 'Yes' : 'No'}</span>`);
+    const draw = () => renderVirtualRows('bpList', rows, (r) => `<span>${r.name}</span><span>${r.ware}</span><span>${r.category}</span><span>${r.owned ? 'Yes' : `<button data-add-blueprint="${r.ware}">Add</button>`}</span>`);
     list.addEventListener('scroll', draw);
     draw();
   }
@@ -158,6 +225,16 @@ function wireEvents() {
   document.getElementById('bpCategory')?.addEventListener('change', (e) => { state.filters.blueprintCategory = e.target.value; render(); });
   document.getElementById('unlockAll')?.addEventListener('click', () => pushPatch({ type: 'UnlockBlueprintWares', wares: Object.keys(state.dicts.blueprints) }));
   document.getElementById('unlockCategory')?.addEventListener('click', () => pushPatch({ type: 'UnlockBlueprintWares', wares: filteredBlueprintRows().map((r) => r.ware) }));
+  document.getElementById('bpList')?.addEventListener('click', (event) => {
+    const button = event.target.closest('button[data-add-blueprint]');
+    if (!button) return;
+    pushPatch({ type: 'UnlockBlueprintWares', wares: [button.dataset.addBlueprint] });
+  });
+  document.getElementById('addBlueprintSingle')?.addEventListener('click', () => {
+    const ware = window.prompt('Enter blueprint ware id');
+    if (!ware || !ware.trim()) return;
+    pushPatch({ type: 'UnlockBlueprintWares', wares: [ware.trim()] });
+  });
 
   document.getElementById('itemSearch')?.addEventListener('input', (e) => { state.filters.itemSearch = e.target.value; renderInventoryList(); });
   document.getElementById('itemCategory')?.addEventListener('change', (e) => { state.filters.itemCategory = e.target.value; renderInventoryList(); });
@@ -182,7 +259,6 @@ function wireEvents() {
     }
   });
 
-
   document.getElementById('queueRelation')?.addEventListener('click', () => {
     if (!canEdit()) return;
     const factionId = document.getElementById('relationFaction').value.trim();
@@ -192,10 +268,24 @@ function wireEvents() {
   });
   document.querySelectorAll('input[data-rep]').forEach((input) => input.addEventListener('change', () => pushPatch({ type: 'SetFactionRelation', factionId: input.dataset.rep, repUI: Number(input.value) })));
 
-  document.getElementById('addLicFaction')?.addEventListener('click', () => pushPatch({ type: 'AddLicenceFaction', typeName: document.getElementById('licType').value.trim(), factionId: document.getElementById('licFaction').value.trim() }));
-  document.getElementById('removeLicFaction')?.addEventListener('click', () => pushPatch({ type: 'RemoveLicenceFaction', typeName: document.getElementById('licType').value.trim(), factionId: document.getElementById('licFaction').value.trim() }));
-  document.getElementById('addLicType')?.addEventListener('click', () => pushPatch({ type: 'AddLicenceType', typeName: document.getElementById('newLicType').value.trim(), factions: document.getElementById('newLicFactions').value.split(/\s+/).filter(Boolean) }));
-  document.getElementById('removeLicType')?.addEventListener('click', () => pushPatch({ type: 'RemoveLicenceType', typeName: document.getElementById('newLicType').value.trim() }));
+  document.querySelectorAll('button[data-lic-faction]').forEach((button) => button.addEventListener('click', () => {
+    state.ui.selectedLicenceFactionId = button.dataset.licFaction;
+    render();
+  }));
+  document.querySelectorAll('input[data-lic-toggle]').forEach((input) => input.addEventListener('change', () => {
+    const typeName = input.dataset.licToggle;
+    const factionId = state.ui.selectedLicenceFactionId;
+    if (!typeName || !factionId) return;
+    pushPatch({ type: input.checked ? 'AddLicenceFaction' : 'RemoveLicenceFaction', typeName, factionId });
+  }));
+  document.getElementById('newLicType')?.addEventListener('input', (event) => { state.ui.newLicenceType = event.target.value; });
+  document.getElementById('addLicType')?.addEventListener('click', () => {
+    const typeName = state.ui.newLicenceType.trim();
+    if (!typeName) return;
+    pushPatch({ type: 'AddLicenceType', typeName, factions: [] });
+    state.ui.newLicenceType = '';
+  });
+  document.getElementById('resetLicPanel')?.addEventListener('click', resetLicencePanel);
 
   document.getElementById('clearPatches')?.addEventListener('click', resetChanges);
 
@@ -214,8 +304,17 @@ document.getElementById('importBtn').onclick = async () => {
   setStatus('Importing...');
   const response = await window.x4api.importSave();
   if (!response) return setStatus('Import canceled');
-  state.model = response.index; state.sourcePath = response.filePath; state.patches = []; state.undo = []; state.redo = []; state.exportResult = null;
-  document.getElementById('saveMeta').textContent = response.filePath; setStatus('Indexed save successfully.'); render();
+  state.model = response.index;
+  state.sourcePath = response.filePath;
+  state.patches = [];
+  state.undo = [];
+  state.redo = [];
+  state.exportResult = null;
+  state.ui.newLicenceType = '';
+  state.ui.selectedLicenceFactionId = response.index?.licencesModel?.allFactionsInLicences?.[0] || '';
+  document.getElementById('saveMeta').textContent = response.filePath;
+  setStatus('Indexed save successfully.');
+  render();
 };
 
 (async function init() {

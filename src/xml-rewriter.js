@@ -7,6 +7,14 @@ const { buildIndex } = require('./xml-indexer');
 const esc = (v) => String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
 const escText = (v) => String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;');
 
+
+function hasLicencePatches(normalized) {
+  return normalized.licenceOps.addFactionsByType.size > 0
+    || normalized.licenceOps.removeFactionsByType.size > 0
+    || normalized.licenceOps.addTypes.size > 0
+    || normalized.licenceOps.removeTypes.size > 0;
+}
+
 function serializeOpenTag(nodeName, attrs) {
   const serialized = Object.entries(attrs).map(([k, v]) => `${k}="${esc(v)}"`).join(' ');
   return serialized ? `<${nodeName} ${serialized}>` : `<${nodeName}>`;
@@ -24,7 +32,8 @@ async function exportPatchedSave({ sourcePath, outputPath, patches, compress = t
     creditsAnchorsUpdated: 0,
     walletAccountsUpdated: 0,
     blueprintsInserted: 0,
-    relationsInserted: 0
+    relationsInserted: 0,
+    licencesInserted: 0
   };
 
   await new Promise((resolve, reject) => {
@@ -47,6 +56,8 @@ async function exportPatchedSave({ sourcePath, outputPath, patches, compress = t
     const seenBlueprintWares = new Set();
 
     let inPlayerLicences = false;
+    let playerLicencesSeen = false;
+    let playerFactionSeen = false;
     const seenLicenceTypes = new Set();
 
     let inPlayerComponent = false;
@@ -80,6 +91,7 @@ async function exportPatchedSave({ sourcePath, outputPath, patches, compress = t
       if (n === 'faction') {
         currentFactionId = String(attrs.id ?? '');
         inPlayerFaction = currentFactionId === 'player';
+        if (inPlayerFaction) playerFactionSeen = true;
         if (normalized.relations.has(currentFactionId)) relationFactionSeen.add(currentFactionId);
       }
 
@@ -118,7 +130,10 @@ async function exportPatchedSave({ sourcePath, outputPath, patches, compress = t
         }
       }
 
-      if (n === 'licences' && inPlayerFaction) inPlayerLicences = true;
+      if (n === 'licences' && inPlayerFaction) {
+        inPlayerLicences = true;
+        playerLicencesSeen = true;
+      }
       if (n === 'licence' && inPlayerLicences && parent === 'licences') {
         const typeName = String(attrs.type ?? '');
         seenLicenceTypes.add(typeName);
@@ -210,22 +225,43 @@ async function exportPatchedSave({ sourcePath, outputPath, patches, compress = t
         for (const [typeName, factionsSet] of normalized.licenceOps.addTypes.entries()) {
           if (!seenLicenceTypes.has(typeName) && !normalized.licenceOps.removeTypes.has(typeName)) {
             output.write(`<licence type="${esc(typeName)}" factions="${esc(stringifyFactionList(Array.from(factionsSet)))}"></licence>`);
+            stats.licencesInserted += 1;
           }
         }
         for (const [typeName, addSet] of normalized.licenceOps.addFactionsByType.entries()) {
           if (!seenLicenceTypes.has(typeName) && !normalized.licenceOps.removeTypes.has(typeName)) {
             output.write(`<licence type="${esc(typeName)}" factions="${esc(stringifyFactionList(Array.from(addSet)))}"></licence>`);
+            stats.licencesInserted += 1;
           }
         }
         inPlayerLicences = false;
       }
 
-      output.write(`</${name}>`);
-
       if (n === 'faction') {
+        if (inPlayerFaction && !playerLicencesSeen && hasLicencePatches(normalized)) {
+          const createdTypes = new Set();
+          output.write('<licences>');
+
+          for (const [typeName, addSet] of normalized.licenceOps.addFactionsByType.entries()) {
+            if (normalized.licenceOps.removeTypes.has(typeName)) continue;
+            output.write(`<licence type="${esc(typeName)}" factions="${esc(stringifyFactionList(Array.from(addSet)))}"></licence>`);
+            createdTypes.add(typeName);
+            stats.licencesInserted += 1;
+          }
+
+          for (const [typeName, factionsSet] of normalized.licenceOps.addTypes.entries()) {
+            if (createdTypes.has(typeName) || normalized.licenceOps.removeTypes.has(typeName)) continue;
+            output.write(`<licence type="${esc(typeName)}" factions="${esc(stringifyFactionList(Array.from(factionsSet)))}"></licence>`);
+            stats.licencesInserted += 1;
+          }
+
+          output.write('</licences>');
+        }
         currentFactionId = null;
         inPlayerFaction = false;
       }
+
+      output.write(`</${name}>`);
       if (n === 'component' && inPlayerComponent && stack.length < playerComponentDepth) {
         inPlayerComponent = false;
         playerComponentDepth = -1;
@@ -235,6 +271,9 @@ async function exportPatchedSave({ sourcePath, outputPath, patches, compress = t
     parser.on('end', () => {
       for (const factionId of normalized.relations.keys()) {
         if (!relationFactionSeen.has(factionId)) return reject(new Error(`Cannot set relation: faction '${factionId}' not found in save`));
+      }
+      if (hasLicencePatches(normalized) && !playerFactionSeen) {
+        return reject(new Error('Cannot edit licences: <faction id="player"> not found in save'));
       }
       output.end();
     });

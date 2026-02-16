@@ -13,3 +13,6 @@ main{padding:16px;overflow:auto}.card{background:var(--panel);padding:12px;borde
 .thead,.vrow{display:grid;grid-template-columns:2fr 2fr 1fr 1fr;gap:10px;align-items:center}.thead{font-weight:700;padding:6px 4px}
 .vlist{height:420px;overflow:auto;position:relative;border:1px solid #1f2937;border-radius:8px}.vinner{position:relative}.vrow{position:absolute;left:0;right:0;height:40px;padding:6px;border-bottom:1px solid #1f2937}.help-card{margin-top:10px}.inv-action{display:flex;align-items:center;gap:6px;flex-wrap:nowrap}.add-one-btn{min-width:44px}
 .table{width:100%;border-collapse:collapse}.table th,.table td{padding:6px;border-bottom:1px solid #1f2937;font-size:12px}
+.licence-layout{display:grid;grid-template-columns:260px 1fr;gap:12px}
+.licence-factions{display:flex;flex-direction:column;gap:6px}
+.licence-row{display:flex;gap:8px;padding:6px 0;align-items:center}
