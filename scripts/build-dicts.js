@@ -56,22 +56,18 @@ function parseModparts(filePath) {
   return { name: 'Common Mod Parts Pack', items };
 }
 
+const repoRoot = path.resolve(__dirname, '..');
+
 function resolveInput(name) {
-  const candidates = [
-    path.join(process.cwd(), name),
-    path.join(process.cwd(), 'For Agent', name),
-    path.join(__dirname, '..', 'For Agent', name)
-  ];
-  for (const candidate of candidates) {
-    if (fs.existsSync(candidate)) return candidate;
-  }
-  throw new Error(`Could not locate input file: ${name}`);
+  const inputPath = path.join(repoRoot, 'assets', 'source', name);
+  if (!fs.existsSync(inputPath)) throw new Error(`Could not locate input file: ${inputPath}`);
+  return inputPath;
 }
 
 function main() {
-  const outBlueprints = path.join(process.cwd(), 'assets', 'dicts', 'blueprints.json');
-  const outItems = path.join(process.cwd(), 'assets', 'dicts', 'items.json');
-  const outModparts = path.join(process.cwd(), 'assets', 'presets', 'modparts.json');
+  const outBlueprints = path.join(repoRoot, 'assets', 'dicts', 'blueprints.json');
+  const outItems = path.join(repoRoot, 'assets', 'dicts', 'items.json');
+  const outModparts = path.join(repoRoot, 'assets', 'presets', 'modparts.json');
   ensureDir(path.dirname(outBlueprints));
   ensureDir(path.dirname(outItems));
   ensureDir(path.dirname(outModparts));

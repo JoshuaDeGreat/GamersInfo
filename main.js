@@ -61,12 +61,13 @@ ipcMain.handle('save:export', async (_event, payload) => {
 });
 
 ipcMain.handle('dict:load', async () => {
+  const base = app.getAppPath();
   const [factions, blueprints, items, modpartsPreset, helpText] = await Promise.all([
-    fs.readFile(path.join(__dirname, 'data', 'factions.json'), 'utf8'),
-    fs.readFile(path.join(__dirname, 'assets', 'dicts', 'blueprints.json'), 'utf8'),
-    fs.readFile(path.join(__dirname, 'assets', 'dicts', 'items.json'), 'utf8'),
-    fs.readFile(path.join(__dirname, 'assets', 'presets', 'modparts.json'), 'utf8'),
-    fs.readFile(path.join(__dirname, 'For Agent', 'cheats-savegame-editing.md'), 'utf8')
+    fs.readFile(path.join(base, 'data', 'factions.json'), 'utf8'),
+    fs.readFile(path.join(base, 'assets', 'dicts', 'blueprints.json'), 'utf8'),
+    fs.readFile(path.join(base, 'assets', 'dicts', 'items.json'), 'utf8'),
+    fs.readFile(path.join(base, 'assets', 'presets', 'modparts.json'), 'utf8'),
+    fs.readFile(path.join(base, 'docs', 'cheats-savegame-editing.md'), 'utf8')
   ]);
 
   return {

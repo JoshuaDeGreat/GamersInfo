@@ -60,7 +60,7 @@ function filteredItemRows() {
 function renderVirtualRows(containerId, rows, renderRow) {
   const viewport = document.getElementById(containerId);
   if (!viewport) return;
-  const rowHeight = 30;
+  const rowHeight = 40;
   const totalHeight = rows.length * rowHeight;
   const scrollTop = viewport.scrollTop;
   const start = Math.max(0, Math.floor(scrollTop / rowHeight) - 5);
@@ -80,7 +80,7 @@ function renderBlueprints() {
 function renderInventory() {
   if (!state.model) return '<div class="card">Import a save to edit inventory.</div>';
   const categories = ['All', ...new Set(Object.values(state.dicts.items).map((item) => item.category))];
-  return `<div class="card"><h3>Inventory</h3><div class="row"><input id="itemSearch" placeholder="Search name or ware id" value="${state.filters.itemSearch}"/><select id="itemCategory">${categories.map((c) => `<option ${c === state.filters.itemCategory ? 'selected' : ''}>${c}</option>`).join('')}</select><label><input type="radio" name="invMode" value="add" ${state.filters.inventoryMode === 'add' ? 'checked' : ''}/>Add</label><label><input type="radio" name="invMode" value="set" ${state.filters.inventoryMode === 'set' ? 'checked' : ''}/>Set</label><button id="modPack">Add common mod parts pack</button></div><div class="thead"><span>Name</span><span>Ware ID</span><span>Amount in save</span><span>Action</span></div><div id="itemList" class="vlist"></div></div>`;
+  return `<div class="card"><h3>Inventory</h3><div class="row"><input id="itemSearch" placeholder="Search name or ware id" value="${state.filters.itemSearch}"/><select id="itemCategory">${categories.map((c) => `<option ${c === state.filters.itemCategory ? 'selected' : ''}>${c}</option>`).join('')}</select><label><input type="radio" name="invMode" value="add" ${state.filters.inventoryMode === 'add' ? 'checked' : ''}/>Add</label><label><input type="radio" name="invMode" value="set" ${state.filters.inventoryMode === 'set' ? 'checked' : ''}/>Set</label><button id="modPack">Add common mod parts pack</button></div><div class="card help-card"><h4>Inventory mode help</h4><p><strong>Add</strong> increases the current amount by the value you enter. Example: if a ware is 2 and you queue 3 in Add mode, it becomes 5.</p><p><strong>Set</strong> overwrites the current amount to exactly the value you enter. Example: if a ware is 2 and you queue 3 in Set mode, it becomes 3.</p></div><div class="thead"><span>Name</span><span>Ware ID</span><span>Amount in save</span><span>Action</span></div><div id="itemList" class="vlist"></div></div>`;
 }
 
 function renderCredits() { if (!state.model) return '<div class="card">Import a save to edit credits.</div>'; const c = state.model.credits; return `<div class="card"><h3>Credits</h3><p>Player money: ${c.playerMoney}</p><input id="creditsValue" type="number" min="0" step="1" value="${c.playerMoney || 0}"/><button id="queueCredits">Queue SetCredits</button></div>`; }
@@ -118,6 +118,17 @@ function renderExport() {
   return `${warningPanel()}<div class="card"><h3>Export</h3><label><input id="compressOut" type="checkbox" checked> Output .xml.gz</label><br/><label><input id="backupOut" type="checkbox" checked> Create backup</label><br/><button id="exportBtn" ${disabled}>Export patched save</button>${state.exportResult ? `<p>Output: ${state.exportResult.outputPath}</p><p>Credits anchors updated: ${summary.creditsAnchorsUpdated}; Wallet accounts updated: ${summary.walletAccountsUpdated}; Blueprints inserted: ${summary.blueprintsInserted}; Relations inserted: ${summary.relationsInserted}</p>` : ''}</div>`;
 }
 
+function queueInventoryPatch(ware, amount) {
+  const safeAmount = Number.isInteger(amount) && amount >= 0 ? amount : 1;
+  pushPatch({ type: state.filters.inventoryMode === 'add' ? 'AddInventoryItem' : 'SetInventoryItem', ware, amount: safeAmount });
+}
+
+function renderInventoryList() {
+  if (state.activeTab !== 'Inventory') return;
+  const rows = filteredItemRows();
+  renderVirtualRows('itemList', rows, (r) => `<span>${r.name}</span><span>${r.ware}</span><span>${r.amount}</span><span class="inv-action"><input type="number" data-qty="${r.ware}" value="${r.suggestedAmount || 1}" min="0"/><button data-add="${r.ware}">Queue</button><button class="add-one-btn" data-add-one="${r.ware}">+1</button></span>`);
+}
+
 function render() {
   renderTabs();
   main.innerHTML = ({ Overview: renderOverview, Credits: renderCredits, Blueprints: renderBlueprints, Inventory: renderInventory, Relations: renderRelations, Licences: renderLicences, 'Changes Preview': renderChanges, Export: renderExport })[state.activeTab]();
@@ -132,11 +143,12 @@ function render() {
     draw();
   }
   if (state.activeTab === 'Inventory') {
-    const rows = filteredItemRows();
     const list = document.getElementById('itemList');
-    const draw = () => renderVirtualRows('itemList', rows, (r) => `<span>${r.name}</span><span>${r.ware}</span><span>${r.amount}</span><span><input type="number" data-qty="${r.ware}" value="${r.suggestedAmount || 1}" min="0"/><button data-add="${r.ware}">Queue</button></span>`);
-    list.addEventListener('scroll', draw);
-    draw();
+    if (list && !list.dataset.scrollBound) {
+      list.addEventListener('scroll', renderInventoryList);
+      list.dataset.scrollBound = '1';
+    }
+    renderInventoryList();
   }
 }
 
@@ -147,17 +159,26 @@ function wireEvents() {
   document.getElementById('unlockAll')?.addEventListener('click', () => pushPatch({ type: 'UnlockBlueprintWares', wares: Object.keys(state.dicts.blueprints) }));
   document.getElementById('unlockCategory')?.addEventListener('click', () => pushPatch({ type: 'UnlockBlueprintWares', wares: filteredBlueprintRows().map((r) => r.ware) }));
 
-  document.getElementById('itemSearch')?.addEventListener('input', (e) => { state.filters.itemSearch = e.target.value; render(); });
-  document.getElementById('itemCategory')?.addEventListener('change', (e) => { state.filters.itemCategory = e.target.value; render(); });
+  document.getElementById('itemSearch')?.addEventListener('input', (e) => { state.filters.itemSearch = e.target.value; renderInventoryList(); });
+  document.getElementById('itemCategory')?.addEventListener('change', (e) => { state.filters.itemCategory = e.target.value; renderInventoryList(); });
   document.querySelectorAll('input[name="invMode"]').forEach((el) => el.addEventListener('change', () => { state.filters.inventoryMode = el.value; }));
-  document.querySelectorAll('[data-add]').forEach((btn) => btn.addEventListener('click', () => {
-    const ware = btn.dataset.add;
-    const amount = Number(document.querySelector(`[data-qty="${ware}"]`)?.value || 1);
-    pushPatch({ type: state.filters.inventoryMode === 'add' ? 'AddInventoryItem' : 'SetInventoryItem', ware, amount: Number.isInteger(amount) ? amount : 1 });
-  }));
+  document.getElementById('itemList')?.addEventListener('click', (event) => {
+    const button = event.target.closest('button[data-add], button[data-add-one]');
+    if (!button) return;
+
+    if (button.dataset.addOne) {
+      queueInventoryPatch(button.dataset.addOne, 1);
+      return;
+    }
+
+    const ware = button.dataset.add;
+    const row = button.closest('.vrow');
+    const amount = Number(row?.querySelector('input[data-qty]')?.value || 1);
+    queueInventoryPatch(ware, amount);
+  });
   document.getElementById('modPack')?.addEventListener('click', () => {
     for (const item of state.dicts.presets.modparts.items) {
-      pushPatch({ type: state.filters.inventoryMode === 'add' ? 'AddInventoryItem' : 'SetInventoryItem', ware: item.ware, amount: item.amount });
+      queueInventoryPatch(item.ware, item.amount);
     }
   });
 
