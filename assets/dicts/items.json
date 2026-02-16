@@ -1,0 +1,394 @@
+{
+  "bomb_player_limpet_emp_01_mk1": {
+    "name": "Spacesuit EMP",
+    "category": "Personal Upgrades"
+  },
+  "bomb_player_limpet_mine_01_mk1": {
+    "name": "Spacesuit Bomb",
+    "category": "Personal Upgrades"
+  },
+  "engine_gen_spacesuit_01_mk1": {
+    "name": "Spacesuit Thrusters Mk1",
+    "category": "Personal Upgrades"
+  },
+  "engine_gen_spacesuit_01_mk2": {
+    "name": "Spacesuit Thrusters Mk2",
+    "category": "Personal Upgrades"
+  },
+  "engine_spacesuit_weak": {
+    "name": "Disrupted Engine",
+    "category": "Personal Upgrades"
+  },
+  "software_hackerspacesuitmk1": {
+    "name": "Hacking Tool",
+    "category": "Personal Upgrades"
+  },
+  "software_oxygenspacesuitmk1": {
+    "name": "Oxygen Upgrade",
+    "category": "Personal Upgrades"
+  },
+  "software_scannerobjectmk3": {
+    "name": "Spacesuit Scanner",
+    "category": "Personal Upgrades"
+  },
+  "weapon_gen_spacesuit_demolition_01_mk1": {
+    "name": "Bomb Launcher",
+    "category": "Personal Upgrades"
+  },
+  "weapon_gen_spacesuit_laser_01_mk1": {
+    "name": "Hand Laser",
+    "category": "Personal Upgrades"
+  },
+  "weapon_gen_spacesuit_laser_02_mk1": {
+    "name": "Personal Blaster",
+    "category": "Personal Upgrades"
+  },
+  "weapon_gen_spacesuit_laser_03_mk1": {
+    "name": "Sporting Rifle",
+    "category": "Personal Upgrades"
+  },
+  "weapon_gen_spacesuit_repairlaser_01_mk1": {
+    "name": "Repair Laser",
+    "category": "Personal Upgrades"
+  },
+  "inv_agidevice_01": {
+    "name": "AGI Processor",
+    "category": "Craftables",
+    "suggestedAmount": 9999
+  },
+  "inv_agidevice_02": {
+    "name": "AGI Heuristic Core",
+    "category": "Craftables",
+    "suggestedAmount": 9999
+  },
+  "inv_agidevice_03": {
+    "name": "AGI Neural Network",
+    "category": "Craftables",
+    "suggestedAmount": 9999
+  },
+  "inv_argnusteak": {
+    "name": "Argnu Steak",
+    "category": "Craftables",
+    "suggestedAmount": 9999
+  },
+  "inv_bandages": {
+    "name": "Bandages",
+    "category": "Craftables",
+    "suggestedAmount": 9999
+  },
+  "inv_damagedsingularityengine": {
+    "name": "Damaged Singularity Engine",
+    "category": "Craftables",
+    "suggestedAmount": 9999
+  },
+  "inv_decryptionmodule": {
+    "name": "Decryption Module",
+    "category": "Craftables",
+    "suggestedAmount": 9999
+  },
+  "inv_electronics": {
+    "name": "Electronics",
+    "category": "Craftables",
+    "suggestedAmount": 9999
+  },
+  "inv_finemeal": {
+    "name": "Fine Meal",
+    "category": "Craftables",
+    "suggestedAmount": 9999
+  },
+  "inv_firstaidkit": {
+    "name": "First Aid Kit",
+    "category": "Craftables",
+    "suggestedAmount": 9999
+  },
+  "inv_fluxcapacitor": {
+    "name": "Flux Capacitor",
+    "category": "Craftables",
+    "suggestedAmount": 9999
+  },
+  "inv_hallucinogenics": {
+    "name": "Hallucinogenics",
+    "category": "Craftables",
+    "suggestedAmount": 9999
+  },
+  "inv_harddrug_01": {
+    "name": "Delirium",
+    "category": "Craftables",
+    "suggestedAmount": 9999
+  },
+  "inv_interfaceunit": {
+    "name": "Interface Unit",
+    "category": "Craftables",
+    "suggestedAmount": 9999
+  },
+  "inv_kyondevice_01": {
+    "name": "Kyon Crystallite",
+    "category": "Craftables",
+    "suggestedAmount": 9999
+  },
+  "inv_kyondevice_02": {
+    "name": "Kyon Crystal Shard",
+    "category": "Craftables",
+    "suggestedAmount": 9999
+  },
+  "inv_kyondevice_03": {
+    "name": "Kyon Crystal",
+    "category": "Craftables",
+    "suggestedAmount": 9999
+  },
+  "inv_magneticmaterial": {
+    "name": "Lodestone",
+    "category": "Craftables",
+    "suggestedAmount": 9999
+  },
+  "inv_mixedfruit": {
+    "name": "Mixed Fruit",
+    "category": "Craftables",
+    "suggestedAmount": 9999
+  },
+  "inv_needle": {
+    "name": "Needle",
+    "category": "Craftables",
+    "suggestedAmount": 9999
+  },
+  "inv_programmablefieldarray": {
+    "name": "Programmable Field Array",
+    "category": "Craftables",
+    "suggestedAmount": 9999
+  },
+  "inv_rarespices": {
+    "name": "Rare Spices",
+    "category": "Craftables",
+    "suggestedAmount": 9999
+  },
+  "inv_remotedetonator": {
+    "name": "Remote Detonator",
+    "category": "Craftables",
+    "suggestedAmount": 9999
+  },
+  "inv_salvagedelectronics": {
+    "name": "Salvaged Electronics",
+    "category": "Craftables",
+    "suggestedAmount": 9999
+  },
+  "inv_securecontainer": {
+    "name": "Secure Container",
+    "category": "Craftables",
+    "suggestedAmount": 9999
+  },
+  "inv_securitybypasssystem": {
+    "name": "Security Bypass System",
+    "category": "Craftables",
+    "suggestedAmount": 9999
+  },
+  "inv_securitydecryptionsystem": {
+    "name": "Security Decryption System",
+    "category": "Craftables",
+    "suggestedAmount": 9999
+  },
+  "inv_securityslicer": {
+    "name": "Security Slicer",
+    "category": "Craftables",
+    "suggestedAmount": 9999
+  },
+  "inv_sedative": {
+    "name": "Sedative",
+    "category": "Craftables",
+    "suggestedAmount": 9999
+  },
+  "inv_spaceflycaviar": {
+    "name": "Spacefly Caviar",
+    "category": "Craftables",
+    "suggestedAmount": 9999
+  },
+  "inv_spaceflyeggs": {
+    "name": "Spacefly Eggs",
+    "category": "Craftables",
+    "suggestedAmount": 9999
+  },
+  "inv_timewarp": {
+    "name": "SETA",
+    "category": "Craftables",
+    "suggestedAmount": 9999
+  },
+  "inv_unstablecrystal": {
+    "name": "Unstable Crystal",
+    "category": "Craftables",
+    "suggestedAmount": 9999
+  },
+  "inv_seminar_management_0": {
+    "name": "Basic Seminar",
+    "category": "Seminars",
+    "suggestedAmount": 9999
+  },
+  "inv_seminar_management_1": {
+    "name": "Seminar for 1-Star Crew",
+    "category": "Seminars",
+    "suggestedAmount": 9999
+  },
+  "inv_seminar_management_2": {
+    "name": "Seminar for 2-Star Crew",
+    "category": "Seminars",
+    "suggestedAmount": 9999
+  },
+  "inv_seminar_management_3": {
+    "name": "Seminar for 3-Star Crew",
+    "category": "Seminars",
+    "suggestedAmount": 9999
+  },
+  "inv_seminar_management_4": {
+    "name": "Advanced Seminar for 4-Star Crew",
+    "category": "Seminars",
+    "suggestedAmount": 9999
+  },
+  "inv_seminar_piloting_0": {
+    "name": "Basic Seminar",
+    "category": "Seminars",
+    "suggestedAmount": 9999
+  },
+  "inv_seminar_piloting_1": {
+    "name": "Seminar for 1-Star Crew",
+    "category": "Seminars",
+    "suggestedAmount": 9999
+  },
+  "inv_seminar_piloting_2": {
+    "name": "Seminar for 2-Star Crew",
+    "category": "Seminars",
+    "suggestedAmount": 9999
+  },
+  "inv_seminar_piloting_3": {
+    "name": "Seminar for 3-Star Crew",
+    "category": "Seminars",
+    "suggestedAmount": 9999
+  },
+  "inv_seminar_piloting_4": {
+    "name": "Advanced Seminar for 4-Star Crew",
+    "category": "Seminars",
+    "suggestedAmount": 9999
+  },
+  "inv_advancedtargetingmodule": {
+    "name": "Advanced Targeting Module",
+    "category": "Tradeables",
+    "suggestedAmount": 9999
+  },
+  "inv_algaescrubber": {
+    "name": "Algae Scrubber",
+    "category": "Tradeables",
+    "suggestedAmount": 9999
+  },
+  "inv_carbonfilter": {
+    "name": "Carbon Filter",
+    "category": "Tradeables",
+    "suggestedAmount": 9999
+  },
+  "inv_crystalbit": {
+    "name": "Crystal Bit",
+    "category": "Tradeables",
+    "suggestedAmount": 9999
+  },
+  "inv_crystal_01": {
+    "name": "Bandannite Crystal",
+    "category": "Tradeables",
+    "suggestedAmount": 9999
+  },
+  "inv_crystal_02": {
+    "name": "Menelaene Crystal",
+    "category": "Tradeables",
+    "suggestedAmount": 9999
+  },
+  "inv_crystal_03": {
+    "name": "Aguilite Crystal",
+    "category": "Tradeables",
+    "suggestedAmount": 9999
+  },
+  "inv_crystal_04": {
+    "name": "Mitonene Crystal",
+    "category": "Tradeables",
+    "suggestedAmount": 9999
+  },
+  "inv_crystal_05": {
+    "name": "Burnite Crystal",
+    "category": "Tradeables",
+    "suggestedAmount": 9999
+  },
+  "inv_herbicide": {
+    "name": "Herbicide",
+    "category": "Tradeables",
+    "suggestedAmount": 9999
+  },
+  "inv_hydraulicpump": {
+    "name": "Hydraulic Pump",
+    "category": "Tradeables",
+    "suggestedAmount": 9999
+  },
+  "inv_majaglit": {
+    "name": "Majaglit",
+    "category": "Tradeables",
+    "suggestedAmount": 9999
+  },
+  "inv_microgimble": {
+    "name": "Micro-Gimbal",
+    "category": "Tradeables",
+    "suggestedAmount": 9999
+  },
+  "inv_micromotor": {
+    "name": "Micro-Motor",
+    "category": "Tradeables",
+    "suggestedAmount": 9999
+  },
+  "inv_modulartrigger": {
+    "name": "Modular Trigger",
+    "category": "Tradeables",
+    "suggestedAmount": 9999
+  },
+  "inv_quantum_data_shard": {
+    "name": "AGI Quantum Data Shard",
+    "category": "Tradeables",
+    "suggestedAmount": 9999
+  },
+  "inv_rapidsandfilter": {
+    "name": "Rapid Sand Filter",
+    "category": "Tradeables",
+    "suggestedAmount": 9999
+  },
+  "clothingmod_0001": {
+    "name": "Clothing Mod 0001",
+    "category": "Miscellaneous",
+    "suggestedAmount": 9999
+  },
+  "clothingmod_0002": {
+    "name": "Clothing Mod 0002",
+    "category": "Miscellaneous",
+    "suggestedAmount": 9999
+  },
+  "clothingmod_0003": {
+    "name": "Clothing Mod 0001",
+    "category": "Miscellaneous",
+    "suggestedAmount": 9999
+  },
+  "inv_processing_panel_7A": {
+    "name": "Processing Panel Unit 7A",
+    "category": "Miscellaneous",
+    "suggestedAmount": 9999
+  },
+  "inv_processing_panel_8X": {
+    "name": "Processing Panel Unit 8X",
+    "category": "Miscellaneous",
+    "suggestedAmount": 9999
+  },
+  "inv_processing_panel_12G": {
+    "name": "Processing Panel Unit 12G",
+    "category": "Miscellaneous",
+    "suggestedAmount": 9999
+  },
+  "inv_processing_panel_19L": {
+    "name": "Processing Panel Unit 19L",
+    "category": "Miscellaneous",
+    "suggestedAmount": 9999
+  },
+  "inv_processing_panel_46B": {
+    "name": "Processing Panel Unit 46B",
+    "category": "Miscellaneous",
+    "suggestedAmount": 9999
+  }
+}

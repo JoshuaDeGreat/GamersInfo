@@ -18,9 +18,14 @@ async function exportPatchedSave({ sourcePath, outputPath, patches, compress = t
   const index = await buildIndex(sourcePath);
 
   const tmp = `${outputPath}.tmp`;
-  if (createBackup) {
-    await fs.copyFile(sourcePath, `${sourcePath}.backup`);
-  }
+  if (createBackup) await fs.copyFile(sourcePath, `${sourcePath}.backup`);
+
+  const stats = {
+    creditsAnchorsUpdated: 0,
+    walletAccountsUpdated: 0,
+    blueprintsInserted: 0,
+    relationsInserted: 0
+  };
 
   await new Promise((resolve, reject) => {
     const parser = sax.createStream(true, { trim: false });
@@ -29,8 +34,6 @@ async function exportPatchedSave({ sourcePath, outputPath, patches, compress = t
 
     const stack = [];
     const skipStack = [];
-
-    const relationPatches = normalized.relations;
     const relationFactionSeen = new Set();
 
     let currentFactionId = null;
@@ -46,16 +49,19 @@ async function exportPatchedSave({ sourcePath, outputPath, patches, compress = t
     let inPlayerLicences = false;
     const seenLicenceTypes = new Set();
 
+    let inPlayerComponent = false;
+    let playerComponentDepth = -1;
+    let inPlayerInventory = false;
+    const seenInventoryWares = new Set();
+
     parser.on('processinginstruction', (pi) => {
-      if (skipStack.length) return;
-      output.write(`<?${pi.name} ${pi.body}?>`);
+      if (!skipStack.length) output.write(`<?${pi.name} ${pi.body}?>`);
     });
 
     parser.on('opentag', (node) => {
       const n = node.name.toLowerCase();
       const attrs = { ...node.attributes };
       stack.push(n);
-
       const parent = stack[stack.length - 2];
 
       if (skipStack.length) {
@@ -63,28 +69,34 @@ async function exportPatchedSave({ sourcePath, outputPath, patches, compress = t
         return;
       }
 
+      if (n === 'component' && attrs.class === 'player' && !inPlayerComponent) {
+        inPlayerComponent = true;
+        playerComponentDepth = stack.length;
+      }
+      if (n === 'inventory' && inPlayerComponent) {
+        inPlayerInventory = true;
+      }
+
       if (n === 'faction') {
         currentFactionId = String(attrs.id ?? '');
         inPlayerFaction = currentFactionId === 'player';
-        if (relationPatches.has(currentFactionId)) relationFactionSeen.add(currentFactionId);
+        if (normalized.relations.has(currentFactionId)) relationFactionSeen.add(currentFactionId);
       }
 
       if (n === 'player' && normalized.setCredits !== null && attrs.money !== undefined) {
         attrs.money = String(normalized.setCredits);
+        stats.creditsAnchorsUpdated += 1;
       }
-
       if (n === 'stat' && normalized.setCredits !== null && attrs.id === 'money_player') {
         attrs.value = String(normalized.setCredits);
+        stats.creditsAnchorsUpdated += 1;
       }
-
       if (n === 'account' && normalized.setCredits !== null && index.credits.playerWalletAccountId && attrs.id === index.credits.playerWalletAccountId) {
         attrs.amount = String(normalized.setCredits);
+        stats.walletAccountsUpdated += 1;
       }
 
-      if (n === 'blueprints') {
-        inBlueprints = true;
-      }
-
+      if (n === 'blueprints') inBlueprints = true;
       if (n === 'blueprint' && inBlueprints && parent === 'blueprints') {
         const ware = String(attrs.ware ?? '');
         if (ware) seenBlueprintWares.add(ware);
@@ -95,26 +107,21 @@ async function exportPatchedSave({ sourcePath, outputPath, patches, compress = t
         currentRelationsFaction = currentFactionId;
         foundRelationTargets = new Set();
       }
-
       if (n === 'relation' && inRelations && parent === 'relations') {
         const targetFaction = String(attrs.faction ?? '');
         foundRelationTargets.add(targetFaction);
 
-        if (currentRelationsFaction === 'player' && relationPatches.has(targetFaction)) {
-          attrs.relation = relationPatches.get(targetFaction);
-        } else if (relationPatches.has(currentRelationsFaction) && targetFaction === 'player') {
-          attrs.relation = relationPatches.get(currentRelationsFaction);
+        if (currentRelationsFaction === 'player' && normalized.relations.has(targetFaction)) {
+          attrs.relation = normalized.relations.get(targetFaction);
+        } else if (normalized.relations.has(currentRelationsFaction) && targetFaction === 'player') {
+          attrs.relation = normalized.relations.get(currentRelationsFaction);
         }
       }
 
-      if (n === 'licences' && inPlayerFaction) {
-        inPlayerLicences = true;
-      }
-
+      if (n === 'licences' && inPlayerFaction) inPlayerLicences = true;
       if (n === 'licence' && inPlayerLicences && parent === 'licences') {
         const typeName = String(attrs.type ?? '');
         seenLicenceTypes.add(typeName);
-
         if (normalized.licenceOps.removeTypes.has(typeName)) {
           skipStack.push(n);
           return;
@@ -134,20 +141,23 @@ async function exportPatchedSave({ sourcePath, outputPath, patches, compress = t
         attrs.factions = stringifyFactionList(Array.from(factions));
       }
 
+      if (n === 'ware' && inPlayerInventory && parent === 'inventory') {
+        const ware = String(attrs.ware ?? '');
+        seenInventoryWares.add(ware);
+        if (normalized.inventoryOps.has(ware)) {
+          const op = normalized.inventoryOps.get(ware);
+          const currentAmount = Number(attrs.amount ?? 0);
+          const base = op.set !== null ? op.set : (Number.isFinite(currentAmount) ? currentAmount : 0);
+          attrs.amount = String(base + op.add);
+        }
+      }
+
       output.write(serializeOpenTag(node.name, attrs));
     });
 
-    parser.on('text', (text) => {
-      if (!skipStack.length) output.write(escText(text));
-    });
-
-    parser.on('cdata', (text) => {
-      if (!skipStack.length) output.write(`<![CDATA[${text}]]>`);
-    });
-
-    parser.on('comment', (text) => {
-      if (!skipStack.length) output.write(`<!--${text}-->`);
-    });
+    parser.on('text', (text) => { if (!skipStack.length) output.write(escText(text)); });
+    parser.on('cdata', (text) => { if (!skipStack.length) output.write(`<![CDATA[${text}]]>`); });
+    parser.on('comment', (text) => { if (!skipStack.length) output.write(`<!--${text}-->`); });
 
     parser.on('closetag', (name) => {
       const n = name.toLowerCase();
@@ -155,23 +165,22 @@ async function exportPatchedSave({ sourcePath, outputPath, patches, compress = t
 
       if (skipStack.length) {
         const skipped = skipStack.pop();
-        if (skipped !== n) {
-          reject(new Error('Internal skip stack mismatch'));
-        }
+        if (skipped !== n) reject(new Error('Internal skip stack mismatch'));
         return;
       }
 
       if (n === 'relations' && inRelations) {
         if (currentRelationsFaction === 'player') {
-          for (const [factionId, relationValue] of relationPatches.entries()) {
+          for (const [factionId, relationValue] of normalized.relations.entries()) {
             if (!foundRelationTargets.has(factionId)) {
               output.write(`<relation faction="${esc(factionId)}" relation="${esc(relationValue)}"></relation>`);
+              stats.relationsInserted += 1;
             }
           }
-        } else if (relationPatches.has(currentRelationsFaction) && !foundRelationTargets.has('player')) {
-          output.write(`<relation faction="player" relation="${esc(relationPatches.get(currentRelationsFaction))}"></relation>`);
+        } else if (normalized.relations.has(currentRelationsFaction) && !foundRelationTargets.has('player')) {
+          output.write(`<relation faction="player" relation="${esc(normalized.relations.get(currentRelationsFaction))}"></relation>`);
+          stats.relationsInserted += 1;
         }
-
         inRelations = false;
         currentRelationsFaction = null;
         foundRelationTargets = new Set();
@@ -181,9 +190,20 @@ async function exportPatchedSave({ sourcePath, outputPath, patches, compress = t
         for (const ware of normalized.unlockBlueprintWares.values()) {
           if (!seenBlueprintWares.has(ware)) {
             output.write(`<blueprint ware="${esc(ware)}"></blueprint>`);
+            stats.blueprintsInserted += 1;
           }
         }
         inBlueprints = false;
+      }
+
+      if (n === 'inventory' && inPlayerInventory) {
+        for (const [ware, op] of normalized.inventoryOps.entries()) {
+          if (!seenInventoryWares.has(ware)) {
+            const amount = (op.set !== null ? op.set : 0) + op.add;
+            output.write(`<ware ware="${esc(ware)}" amount="${esc(amount)}"></ware>`);
+          }
+        }
+        inPlayerInventory = false;
       }
 
       if (n === 'licences' && inPlayerLicences) {
@@ -206,14 +226,15 @@ async function exportPatchedSave({ sourcePath, outputPath, patches, compress = t
         currentFactionId = null;
         inPlayerFaction = false;
       }
+      if (n === 'component' && inPlayerComponent && stack.length < playerComponentDepth) {
+        inPlayerComponent = false;
+        playerComponentDepth = -1;
+      }
     });
 
     parser.on('end', () => {
-      for (const factionId of relationPatches.keys()) {
-        if (!relationFactionSeen.has(factionId)) {
-          reject(new Error(`Cannot set relation: faction '${factionId}' not found in save`));
-          return;
-        }
+      for (const factionId of normalized.relations.keys()) {
+        if (!relationFactionSeen.has(factionId)) return reject(new Error(`Cannot set relation: faction '${factionId}' not found in save`));
       }
       output.end();
     });
@@ -222,7 +243,6 @@ async function exportPatchedSave({ sourcePath, outputPath, patches, compress = t
     input.on('error', reject);
     output.on('error', reject);
     output.on('finish', resolve);
-
     input.pipe(parser);
   }).catch(async (err) => {
     await fs.rm(tmp, { force: true });
@@ -236,7 +256,8 @@ async function exportPatchedSave({ sourcePath, outputPath, patches, compress = t
     backupCreated: createBackup,
     creditsPatched: normalized.setCredits !== null,
     walletAccountId: index.credits.playerWalletAccountId,
-    walletAccountOccurrences: index.credits.walletAccountOccurrences
+    walletAccountOccurrences: index.credits.walletAccountOccurrences,
+    summary: stats
   };
 }
 
