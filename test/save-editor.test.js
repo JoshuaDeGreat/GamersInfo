@@ -322,3 +322,92 @@ test('adding same licence type twice does not duplicate nodes', async () => {
 
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+
+test('indexing captures relation boosters and player contact factions', async () => {
+  const xml = `<?xml version="1.0"?><savegame><factions><faction id="player"><relations><relation faction="argon" relation="0.1"></relation><booster faction="argon" relation="0.2" time="100"></booster></relations></faction><faction id="argon"><relations><relation faction="player" relation="0.1"></relation><booster faction="player" relation="0.05" time="88"></booster></relations></faction></factions></savegame>`;
+  const dir = fs.mkdtempSync(path.join(process.cwd(), 'tmp-x4-'));
+  const xmlPath = path.join(dir, 'boosters-index.xml');
+  fs.writeFileSync(xmlPath, xml);
+
+  const model = await buildIndex(xmlPath);
+  assert.equal(model.relations.playerBoosters.length, 1);
+  assert.equal(model.relations.playerBoosters[0].targetFactionId, 'argon');
+  assert.equal(model.relations.playerBoosters[0].value, '0.2');
+  assert.deepEqual(model.licencesModel.playerContactFactions, ['argon']);
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('SetFactionRep hard mode updates base both ways and removes boosters', async () => {
+  const xml = `<?xml version="1.0"?><savegame><factions><faction id="player"><relations><relation faction="argon" relation="0.2"></relation><booster faction="argon" relation="0.4" time="100"></booster></relations></faction><faction id="argon"><relations><relation faction="player" relation="0.2"></relation><booster faction="player" relation="0.1" time="50"></booster></relations></faction></factions></savegame>`;
+  const dir = fs.mkdtempSync(path.join(process.cwd(), 'tmp-x4-'));
+  const xmlPath = path.join(dir, 'boosters-hard.xml');
+  fs.writeFileSync(xmlPath, xml);
+  const outputPath = path.join(dir, 'boosters-hard-out.xml');
+
+  await exportPatchedSave({
+    sourcePath: xmlPath,
+    outputPath,
+    patches: [{ type: 'SetFactionRep', factionId: 'argon', repUI: 24, mode: 'hard' }],
+    compress: false,
+    createBackup: false
+  });
+
+  const edited = fs.readFileSync(outputPath, 'utf8');
+  assert.match(edited, /<faction id="player">[\s\S]*<relation faction="argon" relation="0.8"><\/relation>/);
+  assert.match(edited, /<faction id="argon">[\s\S]*<relation faction="player" relation="0.8"><\/relation>/);
+  assert.equal((edited.match(/<booster faction="argon"/g) || []).length, 0);
+  assert.equal((edited.match(/<booster faction="player"/g) || []).length, 0);
+  await parseXmlString(edited);
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('SetFactionRep soft mode updates base both ways and keeps boosters', async () => {
+  const xml = `<?xml version="1.0"?><savegame><factions><faction id="player"><relations><relation faction="argon" relation="0.2"></relation><booster faction="argon" relation="0.4" time="100"></booster></relations></faction><faction id="argon"><relations><relation faction="player" relation="0.2"></relation><booster faction="player" relation="0.1" time="50"></booster></relations></faction></factions></savegame>`;
+  const dir = fs.mkdtempSync(path.join(process.cwd(), 'tmp-x4-'));
+  const xmlPath = path.join(dir, 'boosters-soft.xml');
+  fs.writeFileSync(xmlPath, xml);
+  const outputPath = path.join(dir, 'boosters-soft-out.xml');
+
+  await exportPatchedSave({
+    sourcePath: xmlPath,
+    outputPath,
+    patches: [{ type: 'SetFactionRep', factionId: 'argon', repUI: -12, mode: 'soft' }],
+    compress: false,
+    createBackup: false
+  });
+
+  const edited = fs.readFileSync(outputPath, 'utf8');
+  assert.match(edited, /<faction id="player">[\s\S]*<relation faction="argon" relation="-0.4"><\/relation>/);
+  assert.match(edited, /<faction id="argon">[\s\S]*<relation faction="player" relation="-0.4"><\/relation>/);
+  assert.equal((edited.match(/<booster faction="argon" relation="0.4" time="100">/g) || []).length, 1);
+  assert.equal((edited.match(/<booster faction="player" relation="0.1" time="50">/g) || []).length, 1);
+  await parseXmlString(edited);
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('SetFactionRep inserts missing reverse and player relation nodes', async () => {
+  const xml = `<?xml version="1.0"?><savegame><factions><faction id="player"><relations></relations></faction><faction id="argon"><relations></relations></faction></factions></savegame>`;
+  const dir = fs.mkdtempSync(path.join(process.cwd(), 'tmp-x4-'));
+  const xmlPath = path.join(dir, 'relations-insert.xml');
+  fs.writeFileSync(xmlPath, xml);
+  const outputPath = path.join(dir, 'relations-insert-out.xml');
+
+  await exportPatchedSave({
+    sourcePath: xmlPath,
+    outputPath,
+    patches: [{ type: 'SetFactionRep', factionId: 'argon', repUI: 6 }],
+    compress: false,
+    createBackup: false
+  });
+
+  const edited = fs.readFileSync(outputPath, 'utf8');
+  assert.match(edited, /<faction id="player">[\s\S]*<relation faction="argon" relation="0.2"><\/relation>/);
+  assert.match(edited, /<faction id="argon">[\s\S]*<relation faction="player" relation="0.2"><\/relation>/);
+  await parseXmlString(edited);
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});

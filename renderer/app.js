@@ -9,7 +9,7 @@ const state = {
   undo: [],
   redo: [],
   dicts: { blueprints: {}, items: {}, factionsById: {}, licenceTypes: [], presets: { modparts: { name: 'Common Mod Parts Pack', items: [] } }, helpText: '' },
-  filters: { blueprintSearch: '', blueprintCategory: 'All', itemSearch: '', itemCategory: 'All', inventoryMode: 'set' },
+  filters: { blueprintSearch: '', blueprintCategory: 'All', itemSearch: '', itemCategory: 'All', inventoryMode: 'set', relationMode: 'hard' },
   ui: { selectedLicenceFactionId: '', licenceCatalogSearch: '' },
   exportResult: null
 };
@@ -101,9 +101,40 @@ function renderCredits() { if (!state.model) return '<div class="card">Import a 
 
 function renderRelations() {
   if (!state.model) return '<div class="card">Import a save to edit relations.</div>';
-  const factionIds = Object.keys(state.dicts.factionsById).sort();
-  const rows = state.model.relations.player.map((entry) => `<tr><td>${factionLabel(entry.targetFactionId)}</td><td>${entry.value}</td><td><input type="number" min="-30" max="30" data-rep="${entry.targetFactionId}" value="${Math.round(Number(entry.value) * 30)}"></td></tr>`).join('');
-  return `<div class="card"><h3>Set faction relation</h3><input id="relationFaction" list="relationFactions" placeholder="faction id"/><datalist id="relationFactions">${factionIds.map((id) => `<option value="${id}">${factionLabel(id)}</option>`).join('')}</datalist><input id="relationRep" type="number" min="-30" max="30" value="30"/><button id="queueRelation">Queue SetFactionRelation</button><table class="table"><thead><tr><th>Faction</th><th>File</th><th>Queue rep</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+
+  const factionIds = Array.from(new Set([
+    ...Object.keys(state.model.relations.byFaction || {}),
+    ...state.model.relations.player.map((entry) => entry.targetFactionId),
+    ...Object.keys(state.dicts.factionsById || {})
+  ].filter(Boolean))).sort();
+
+  const playerBoosters = new Map((state.model.relations.playerBoosters || []).map((entry) => [entry.targetFactionId, Number(entry.value || 0)]));
+  const reverseBase = new Map();
+  const reverseBoosters = new Map();
+  for (const [factionId, relEntries] of Object.entries(state.model.relations.byFaction || {})) {
+    for (const entry of relEntries) {
+      if (entry.targetFactionId === 'player') reverseBase.set(factionId, Number(entry.value || 0));
+    }
+  }
+  for (const [factionId, boosterEntries] of Object.entries(state.model.relations.boostersByFaction || {})) {
+    for (const entry of boosterEntries) {
+      if (entry.targetFactionId === 'player') reverseBoosters.set(factionId, Number(entry.value || 0));
+    }
+  }
+
+  const rows = state.model.relations.player
+    .map((entry) => {
+      const base = Number(entry.value || 0);
+      const booster = playerBoosters.get(entry.targetFactionId);
+      const repBase = Math.round(base * 30 * 1000) / 1000;
+      const repEst = booster === undefined ? repBase : Math.round((base + booster) * 30 * 1000) / 1000;
+      const reverseBaseValue = reverseBase.has(entry.targetFactionId) ? reverseBase.get(entry.targetFactionId) : null;
+      const reverseBoosterValue = reverseBoosters.has(entry.targetFactionId) ? reverseBoosters.get(entry.targetFactionId) : null;
+      return `<tr><td>${factionLabel(entry.targetFactionId)}</td><td>${base}</td><td>${booster === undefined ? '—' : booster}</td><td>${repBase}</td><td>${repEst} <span class="muted">(estimate)</span></td><td><input type="number" min="-30" max="30" data-rep="${entry.targetFactionId}" value="${Math.round(repBase)}"></td><td class="muted">Base back: ${reverseBaseValue === null ? 'missing' : reverseBaseValue}; Booster back: ${reverseBoosterValue === null ? '—' : reverseBoosterValue}</td></tr>`;
+    })
+    .join('');
+
+  return `<div class="card"><h3>Set faction relation</h3><div class="row"><input id="relationFaction" list="relationFactions" placeholder="faction id"/><datalist id="relationFactions">${factionIds.map((id) => `<option value="${id}">${factionLabel(id)}</option>`).join('')}</datalist><input id="relationRep" type="number" min="-30" max="30" value="30"/><select id="relationMode"><option value="hard" ${state.filters.relationMode === 'hard' ? 'selected' : ''}>Hard Set (recommended)</option><option value="soft" ${state.filters.relationMode === 'soft' ? 'selected' : ''}>Soft Set (keep boosters)</option><option value="setBooster" ${state.filters.relationMode === 'setBooster' ? 'selected' : ''}>Set Booster Too (advanced)</option></select><button id="queueRelation">Queue SetFactionRep</button></div><p class="muted">Hard Set updates base both directions and deletes boosters both directions. Soft Set keeps boosters, so in-game relation may differ until boosters expire. Set Booster Too currently keeps existing boosters unchanged unless already present in save.</p><table class="table"><thead><tr><th>Faction</th><th>Base</th><th>Booster</th><th>Rep base</th><th>Rep est</th><th>Queue rep</th><th>Reverse link</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
 function licenceStateFromModelAndPatches() {
@@ -139,8 +170,8 @@ function renderLicences() {
   if (!hasPlayerFaction()) return '<div class="card"><h3>Licences</h3><p>Cannot edit licences: &lt;faction id="player"&gt; not found in this save.</p></div>';
 
   const { byType, allTypes, allFactions } = licenceStateFromModelAndPatches();
-  const selectableFactions = Object.keys(state.dicts.factionsById || {}).sort();
-  const factionPool = selectableFactions.length ? selectableFactions : allFactions;
+  const contactFactions = state.model.licencesModel.playerContactFactions || [];
+  const factionPool = contactFactions.length ? contactFactions : allFactions;
   if (!state.ui.selectedLicenceFactionId || !factionPool.includes(state.ui.selectedLicenceFactionId)) {
     state.ui.selectedLicenceFactionId = factionPool[0] || '';
   }
@@ -188,7 +219,7 @@ function renderChanges() {
 function renderExport() {
   const disabled = state.model ? '' : 'disabled';
   const summary = state.exportResult?.summary;
-  return `${warningPanel()}<div class="card"><h3>Export</h3><label><input id="compressOut" type="checkbox" checked> Output .xml.gz</label><br/><label><input id="backupOut" type="checkbox" checked> Create backup</label><br/><button id="exportBtn" ${disabled}>Export patched save</button>${state.exportResult ? `<p>Output: ${state.exportResult.outputPath}</p><p>Credits anchors updated: ${summary.creditsAnchorsUpdated}; Wallet accounts updated: ${summary.walletAccountsUpdated}; Blueprints inserted: ${summary.blueprintsInserted}; Relations inserted: ${summary.relationsInserted}; Licences inserted: ${summary.licencesInserted}</p>` : ''}</div>`;
+  return `${warningPanel()}<div class="card"><h3>Export</h3><label><input id="compressOut" type="checkbox" checked> Output .xml.gz</label><br/><label><input id="backupOut" type="checkbox" checked> Create backup</label><br/><button id="exportBtn" ${disabled}>Export patched save</button>${state.exportResult ? `<p>Output: ${state.exportResult.outputPath}</p><p>Credits anchors updated: ${summary.creditsAnchorsUpdated}; Wallet accounts updated: ${summary.walletAccountsUpdated}; Blueprints inserted: ${summary.blueprintsInserted}; Relations inserted: ${summary.relationsInserted}; Boosters deleted: ${summary.boostersDeleted || 0}; Licences inserted: ${summary.licencesInserted}</p>` : ''}</div>`;
 }
 
 function queueInventoryPatch(ware, amount) {
@@ -270,9 +301,11 @@ function wireEvents() {
     const factionId = document.getElementById('relationFaction').value.trim();
     const repUI = Number(document.getElementById('relationRep').value);
     if (!factionId) return;
-    pushPatch({ type: 'SetFactionRelation', factionId, repUI });
+    const mode = document.getElementById('relationMode')?.value || state.filters.relationMode || 'hard';
+    pushPatch({ type: 'SetFactionRep', factionId, repUI, mode });
   });
-  document.querySelectorAll('input[data-rep]').forEach((input) => input.addEventListener('change', () => pushPatch({ type: 'SetFactionRelation', factionId: input.dataset.rep, repUI: Number(input.value) })));
+  document.getElementById('relationMode')?.addEventListener('change', (event) => { state.filters.relationMode = event.target.value; });
+  document.querySelectorAll('input[data-rep]').forEach((input) => input.addEventListener('change', () => pushPatch({ type: 'SetFactionRep', factionId: input.dataset.rep, repUI: Number(input.value), mode: state.filters.relationMode })));
 
   document.querySelectorAll('button[data-lic-faction]').forEach((button) => button.addEventListener('click', () => {
     state.ui.selectedLicenceFactionId = button.dataset.licFaction;
@@ -321,7 +354,7 @@ document.getElementById('importBtn').onclick = async () => {
   state.redo = [];
   state.exportResult = null;
   state.ui.licenceCatalogSearch = '';
-  state.ui.selectedLicenceFactionId = response.index?.licencesModel?.allFactionsInLicences?.[0] || '';
+  state.ui.selectedLicenceFactionId = response.index?.licencesModel?.playerContactFactions?.[0] || response.index?.licencesModel?.allFactionsInLicences?.[0] || '';
   document.getElementById('saveMeta').textContent = response.filePath;
   setStatus('Indexed save successfully.');
   render();
