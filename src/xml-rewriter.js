@@ -7,7 +7,6 @@ const { buildIndex } = require('./xml-indexer');
 const esc = (v) => String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
 const escText = (v) => String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;');
 const SKILL_KEYS = ['morale', 'piloting', 'management', 'engineering', 'boarding'];
-const escapeRegExp = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 function hasLicencePatches(normalized) {
   return normalized.licenceOps.addFactionsByType.size > 0
@@ -19,90 +18,6 @@ function hasLicencePatches(normalized) {
 function serializeOpenTag(nodeName, attrs) {
   const serialized = Object.entries(attrs).map(([k, v]) => `${k}="${esc(v)}"`).join(' ');
   return serialized ? `<${nodeName} ${serialized}>` : `<${nodeName}>`;
-}
-
-function patchNpcComponentXml(componentXml, skillPatch) {
-  const traitsMatch = componentXml.match(/<traits\b[^>]*>[\s\S]*?<\/traits>/i);
-  if (!traitsMatch) return { xml: componentXml, applied: false, reason: 'no_traits' };
-  const traitsXml = traitsMatch[0];
-
-  if (/<skills\b/i.test(traitsXml)) {
-    const patchedTraits = traitsXml.replace(/<skills\b([^>]*?)(\/?)>/i, (full, attrChunk, selfClose) => {
-      const attrs = {};
-      for (const match of attrChunk.matchAll(/([\w:-]+)="([^"]*)"/g)) attrs[match[1]] = match[2];
-      for (const [key, value] of Object.entries(skillPatch)) attrs[key] = String(value);
-      const serialized = Object.entries(attrs).map(([k, v]) => `${k}="${esc(v)}"`).join(' ');
-      return `<skills${serialized ? ` ${serialized}` : ''}${selfClose ? '/>' : '>'}`;
-    });
-    return { xml: componentXml.replace(traitsXml, patchedTraits), applied: true, reason: 'skills_attributes' };
-  }
-
-  if (/<skill\b/i.test(traitsXml)) {
-    const updated = { ...skillPatch };
-    let patchedTraits = traitsXml.replace(/<skill\b([^>]*?)(\/?>\s*(?:<\/skill>)?)/gi, (full, attrChunk) => {
-      const attrs = {};
-      for (const match of attrChunk.matchAll(/([\w:-]+)="([^"]*)"/g)) attrs[match[1]] = match[2];
-      const type = String(attrs.type || '').trim();
-      if (Object.prototype.hasOwnProperty.call(updated, type)) {
-        attrs.value = String(updated[type]);
-        delete updated[type];
-      }
-      const serialized = Object.entries(attrs).map(([k, v]) => `${k}="${esc(v)}"`).join(' ');
-      return `<skill ${serialized}/>`;
-    });
-
-    if (Object.keys(updated).length) {
-      const inserts = Object.entries(updated).map(([type, value]) => `<skill type="${esc(type)}" value="${esc(value)}"/>`).join('');
-      patchedTraits = patchedTraits.replace(/<\/traits>$/i, `${inserts}</traits>`);
-    }
-
-    return { xml: componentXml.replace(traitsXml, patchedTraits), applied: true, reason: 'skill_nodes' };
-  }
-
-  return { xml: componentXml, applied: false, reason: 'unknown_traits_structure' };
-}
-
-
-function patchShipComponentXml(componentXml, crewPatchesByIndex, modPatchesByIndex) {
-  let xml = componentXml;
-  let crewUpdated = 0;
-  let modUpdated = 0;
-
-  const peopleMatches = Array.from(xml.matchAll(/<person\b[^>]*>[\s\S]*?<\/person>/gi));
-  for (const [crewIndex, skills] of (crewPatchesByIndex?.entries?.() || [])) {
-    const match = peopleMatches[crewIndex];
-    if (!match) continue;
-    const personXml = match[0];
-    const patchedPerson = personXml.replace(/<skills\b([^>]*?)(\/?)>/i, (full, attrChunk, selfClose) => {
-      const attrs = {};
-      for (const m of String(attrChunk || '').matchAll(/([\w:-]+)="([^"]*)"/g)) attrs[m[1]] = m[2];
-      for (const [k, v] of Object.entries(skills || {})) attrs[k] = String(v);
-      const serialized = Object.entries(attrs).map(([k, v]) => `${k}="${esc(v)}"`).join(' ');
-      return `<skills${serialized ? ` ${serialized}` : ''}${selfClose ? '/>' : '>'}`;
-    });
-    if (patchedPerson !== personXml) {
-      xml = xml.replace(personXml, patchedPerson);
-      crewUpdated += 1;
-    }
-  }
-
-  const modTagMatches = Array.from(xml.matchAll(/<(modification|engine|ship|weapon|paint)\b([^>]*)>/gi));
-  for (const [modIndex, values] of (modPatchesByIndex?.entries?.() || [])) {
-    const match = modTagMatches[modIndex];
-    if (!match) continue;
-    const fullTag = match[0];
-    const tagName = match[1];
-    const attrChunk = match[2] || '';
-    const attrs = {};
-    for (const m of String(attrChunk).matchAll(/([\w:-]+)="([^"]*)"/g)) attrs[m[1]] = m[2];
-    for (const [k, v] of Object.entries(values || {})) attrs[k] = String(v);
-    const serialized = Object.entries(attrs).map(([k, v]) => `${k}="${esc(v)}"`).join(' ');
-    const replacement = `<${tagName}${serialized ? ` ${serialized}` : ''}>`;
-    xml = xml.replace(fullTag, replacement);
-    modUpdated += 1;
-  }
-
-  return { xml, crewUpdated, modUpdated };
 }
 
 async function exportPatchedSave({ sourcePath, outputPath, patches, compress = true, createBackup = true }) {
@@ -133,7 +48,9 @@ async function exportPatchedSave({ sourcePath, outputPath, patches, compress = t
     npcSkillsUpdated: 0,
     npcSkillsSkippedNoTraits: 0,
     shipCrewSkillsUpdated: 0,
-    shipModificationValuesUpdated: 0
+    shipModificationValuesUpdated: 0,
+    shipAttributesUpdated: 0,
+    officerSkillsUpdated: 0
   };
 
   await new Promise((resolve, reject) => {
@@ -144,6 +61,10 @@ async function exportPatchedSave({ sourcePath, outputPath, patches, compress = t
     const stack = [];
     const skipStack = [];
     const relationFactionSeen = new Set();
+    const componentStack = [];
+    const partCounters = new Map();
+    const shipModCounters = new Map();
+    const personCounters = new Map();
 
     let currentFactionId = null;
     let inPlayerFaction = false;
@@ -151,7 +72,6 @@ async function exportPatchedSave({ sourcePath, outputPath, patches, compress = t
     let inRelations = false;
     let currentRelationsFaction = null;
     let foundRelationTargets = new Set();
-    let foundBoosterTargets = new Set();
 
     let inBlueprints = false;
     const seenBlueprintWares = new Set();
@@ -167,18 +87,23 @@ async function exportPatchedSave({ sourcePath, outputPath, patches, compress = t
     const seenInventoryWares = new Set();
 
     let inInfo = false;
-    let npcCapture = null;
-    let shipCapture = null;
+    let currentShipPeopleId = null;
+    let currentShipPersonIndex = -1;
+    let currentOfficerId = null;
+    let inOfficerTraits = false;
+    let currentNpcPatchId = null;
+    let inNpcTraits = false;
+    let npcSeenSkillTypes = new Set();
 
-    function emit(text) {
-      if (npcCapture) npcCapture.parts.push(text);
-      else if (shipCapture) shipCapture.parts.push(text);
-      else if (!skipStack.length) output.write(text);
+    function activeShipId() {
+      for (let i = componentStack.length - 1; i >= 0; i -= 1) if (componentStack[i].isShip) return componentStack[i].id;
+      return null;
     }
 
-    parser.on('processinginstruction', (pi) => {
-      emit(`<?${pi.name} ${pi.body}?>`);
-    });
+    parser.on('processinginstruction', (pi) => { if (!skipStack.length) output.write(`<?${pi.name} ${pi.body}?>`); });
+    parser.on('text', (text) => { if (!skipStack.length) output.write(escText(text)); });
+    parser.on('cdata', (text) => { if (!skipStack.length) output.write(`<![CDATA[${text}]]>`); });
+    parser.on('comment', (text) => { if (!skipStack.length) output.write(`<!--${text}-->`); });
 
     parser.on('opentag', (node) => {
       const n = node.name.toLowerCase();
@@ -186,38 +111,11 @@ async function exportPatchedSave({ sourcePath, outputPath, patches, compress = t
       stack.push(n);
       const parent = stack[stack.length - 2];
 
+      if (skipStack.length) { skipStack.push(n); return; }
+
       if (n === 'info') inInfo = true;
-
-      if (npcCapture) {
-        emit(serializeOpenTag(node.name, attrs));
-        return;
-      }
-      if (shipCapture) {
-        emit(serializeOpenTag(node.name, attrs));
-        return;
-      }
-
-      if (skipStack.length) {
-        skipStack.push(n);
-        return;
-      }
-
-      if (n === 'component' && attrs.class === 'npc' && attrs.id && normalized.npcSkillOps.has(String(attrs.id))) {
-        npcCapture = { depth: stack.length, npcId: String(attrs.id), parts: [serializeOpenTag(node.name, attrs)] };
-        return;
-      }
-      if (n === 'component' && attrs.id && (normalized.shipCrewSkillOps.has(String(attrs.id)) || normalized.shipModificationOps.has(String(attrs.id)))) {
-        shipCapture = { depth: stack.length, shipId: String(attrs.id), parts: [serializeOpenTag(node.name, attrs)] };
-        return;
-      }
-
-      if (n === 'component' && attrs.class === 'player' && !inPlayerComponent) {
-        inPlayerComponent = true;
-        playerComponentDepth = stack.length;
-      }
-      if (n === 'inventory' && inPlayerComponent) {
-        inPlayerInventory = true;
-      }
+      if (n === 'component' && attrs.class === 'player' && !inPlayerComponent) { inPlayerComponent = true; playerComponentDepth = stack.length; }
+      if (n === 'inventory' && inPlayerComponent) inPlayerInventory = true;
 
       if (n === 'faction') {
         currentFactionId = String(attrs.id ?? '');
@@ -226,95 +124,60 @@ async function exportPatchedSave({ sourcePath, outputPath, patches, compress = t
         if (normalized.relations.has(currentFactionId)) relationFactionSeen.add(currentFactionId);
       }
 
-      if (n === 'player' && inInfo && normalized.setPlayerName !== null) {
-        attrs.name = normalized.setPlayerName;
-        stats.playerNamesUpdated += 1;
-      }
-      if (n === 'game' && inInfo && normalized.setModifiedFlag !== null) {
-        attrs.modified = String(normalized.setModifiedFlag);
-        stats.modifiedFlagsUpdated += 1;
+      if (n === 'component') {
+        const componentId = String(attrs.id || '');
+        const className = String(attrs.class || '');
+        const isShip = className.startsWith('ship_') && Boolean(componentId);
+        componentStack.push({ id: componentId, isShip, className });
+        const shipOps = normalized.shipAttrOps.get(componentId);
+        if (isShip && shipOps) {
+          if (shipOps.owner !== undefined) attrs.owner = shipOps.owner;
+          if (shipOps.name !== undefined) attrs.name = shipOps.name;
+          if (shipOps.code !== undefined) attrs.code = shipOps.code;
+          stats.shipAttributesUpdated += 1;
+        }
+        if ((className === 'npc' || className === 'computer') && normalized.officerSkillOps.has(componentId)) currentOfficerId = componentId;
+        if (className === 'npc' && normalized.npcSkillOps.has(componentId)) { currentNpcPatchId = componentId; npcSeenSkillTypes = new Set(); }
       }
 
-      if (n === 'player' && normalized.setCredits !== null && attrs.money !== undefined) {
-        attrs.money = String(normalized.setCredits);
-        stats.creditsAnchorsUpdated += 1;
-      }
-      if (n === 'stat' && normalized.setCredits !== null && attrs.id === 'money_player') {
-        attrs.value = String(normalized.setCredits);
-        stats.creditsAnchorsUpdated += 1;
-      }
-      if (n === 'account' && normalized.setCredits !== null && index.credits.playerWalletAccountId && attrs.id === index.credits.playerWalletAccountId) {
-        attrs.amount = String(normalized.setCredits);
-        stats.walletAccountsUpdated += 1;
-      }
+      const shipId = activeShipId();
+
+      if (n === 'player' && inInfo && normalized.setPlayerName !== null) { attrs.name = normalized.setPlayerName; stats.playerNamesUpdated += 1; }
+      if (n === 'game' && inInfo && normalized.setModifiedFlag !== null) { attrs.modified = String(normalized.setModifiedFlag); stats.modifiedFlagsUpdated += 1; }
+      if (n === 'player' && normalized.setCredits !== null && attrs.money !== undefined) { attrs.money = String(normalized.setCredits); stats.creditsAnchorsUpdated += 1; }
+      if (n === 'stat' && normalized.setCredits !== null && attrs.id === 'money_player') { attrs.value = String(normalized.setCredits); stats.creditsAnchorsUpdated += 1; }
+      if (n === 'account' && normalized.setCredits !== null && index.credits.playerWalletAccountId && attrs.id === index.credits.playerWalletAccountId) { attrs.amount = String(normalized.setCredits); stats.walletAccountsUpdated += 1; }
 
       if (n === 'blueprints') inBlueprints = true;
-      if (n === 'blueprint' && inBlueprints && parent === 'blueprints') {
-        const ware = String(attrs.ware ?? '');
-        if (ware) seenBlueprintWares.add(ware);
-      }
+      if (n === 'blueprint' && inBlueprints && parent === 'blueprints') { const ware = String(attrs.ware ?? ''); if (ware) seenBlueprintWares.add(ware); }
 
-      if (n === 'relations' && currentFactionId) {
-        inRelations = true;
-        currentRelationsFaction = currentFactionId;
-        foundRelationTargets = new Set();
-        foundBoosterTargets = new Set();
-      }
+      if (n === 'relations' && currentFactionId) { inRelations = true; currentRelationsFaction = currentFactionId; foundRelationTargets = new Set(); }
       if (n === 'relation' && inRelations && parent === 'relations') {
         const targetFaction = String(attrs.faction ?? '');
         foundRelationTargets.add(targetFaction);
-
-        if (currentRelationsFaction === 'player' && normalized.relations.has(targetFaction)) {
-          attrs.relation = normalized.relations.get(targetFaction).relation;
-        } else if (normalized.relations.has(currentRelationsFaction) && targetFaction === 'player') {
-          attrs.relation = normalized.relations.get(currentRelationsFaction).relation;
-        }
+        if (currentRelationsFaction === 'player' && normalized.relations.has(targetFaction)) attrs.relation = normalized.relations.get(targetFaction).relation;
+        else if (normalized.relations.has(currentRelationsFaction) && targetFaction === 'player') attrs.relation = normalized.relations.get(currentRelationsFaction).relation;
       }
-
       if (n === 'booster' && inRelations && parent === 'relations') {
         const targetFaction = String(attrs.faction ?? '');
-        foundBoosterTargets.add(targetFaction);
-
         if (currentRelationsFaction === 'player' && normalized.relations.has(targetFaction)) {
           const relationPatch = normalized.relations.get(targetFaction);
-          if (relationPatch.mode === 'hard') {
-            skipStack.push(n);
-            stats.boostersDeleted += 1;
-            return;
-          }
+          if (relationPatch.mode === 'hard') { skipStack.push(n); stats.boostersDeleted += 1; return; }
         } else if (normalized.relations.has(currentRelationsFaction) && targetFaction === 'player') {
           const relationPatch = normalized.relations.get(currentRelationsFaction);
-          if (relationPatch.mode === 'hard') {
-            skipStack.push(n);
-            stats.boostersDeleted += 1;
-            return;
-          }
+          if (relationPatch.mode === 'hard') { skipStack.push(n); stats.boostersDeleted += 1; return; }
         }
       }
 
-      if (n === 'licences' && inPlayerFaction) {
-        inPlayerLicences = true;
-        playerLicencesSeen = true;
-      }
+      if (n === 'licences' && inPlayerFaction) { inPlayerLicences = true; playerLicencesSeen = true; }
       if (n === 'licence' && inPlayerLicences && parent === 'licences') {
         const typeName = String(attrs.type ?? '');
         seenLicenceTypes.add(typeName);
-        if (normalized.licenceOps.removeTypes.has(typeName)) {
-          skipStack.push(n);
-          return;
-        }
-
+        if (normalized.licenceOps.removeTypes.has(typeName)) { skipStack.push(n); return; }
         const factions = new Set(parseFactionList(attrs.factions));
-        if (normalized.licenceOps.addTypes.has(typeName)) {
-          normalized.licenceOps.addTypes.get(typeName).forEach((id) => factions.add(id));
-        }
-        if (normalized.licenceOps.addFactionsByType.has(typeName)) {
-          normalized.licenceOps.addFactionsByType.get(typeName).forEach((id) => factions.add(id));
-        }
-        if (normalized.licenceOps.removeFactionsByType.has(typeName)) {
-          normalized.licenceOps.removeFactionsByType.get(typeName).forEach((id) => factions.delete(id));
-        }
-
+        if (normalized.licenceOps.addTypes.has(typeName)) normalized.licenceOps.addTypes.get(typeName).forEach((id) => factions.add(id));
+        if (normalized.licenceOps.addFactionsByType.has(typeName)) normalized.licenceOps.addFactionsByType.get(typeName).forEach((id) => factions.add(id));
+        if (normalized.licenceOps.removeFactionsByType.has(typeName)) normalized.licenceOps.removeFactionsByType.get(typeName).forEach((id) => factions.delete(id));
         attrs.factions = stringifyFactionList(Array.from(factions));
       }
 
@@ -329,41 +192,77 @@ async function exportPatchedSave({ sourcePath, outputPath, patches, compress = t
         }
       }
 
-      emit(serializeOpenTag(node.name, attrs));
-    });
+      if (n === 'people' && shipId) { currentShipPeopleId = shipId; if (!personCounters.has(shipId)) personCounters.set(shipId, 0); }
+      if (n === 'person' && currentShipPeopleId) { currentShipPersonIndex = personCounters.get(currentShipPeopleId) || 0; personCounters.set(currentShipPeopleId, currentShipPersonIndex + 1); }
+      if (n === 'skills' && currentShipPeopleId && currentShipPersonIndex >= 0) {
+        const shipPatch = normalized.shipCrewSkillOps.get(currentShipPeopleId);
+        const patch = shipPatch?.get(currentShipPersonIndex);
+        if (patch) {
+          for (const [k, v] of Object.entries(patch)) attrs[k] = String(v);
+          stats.shipCrewSkillsUpdated += 1;
+        }
+      }
 
-    parser.on('text', (text) => { emit(escText(text)); });
-    parser.on('cdata', (text) => { emit(`<![CDATA[${text}]]>`); });
-    parser.on('comment', (text) => { emit(`<!--${text}-->`); });
+      if (n === 'traits' && currentOfficerId) inOfficerTraits = true;
+      if (n === 'traits' && currentNpcPatchId) inNpcTraits = true;
+      if (n === 'skills' && currentOfficerId && inOfficerTraits) {
+        const patch = normalized.officerSkillOps.get(currentOfficerId);
+        if (patch) {
+          for (const [k, v] of Object.entries(patch)) attrs[k] = String(v);
+          stats.officerSkillsUpdated += 1;
+        }
+      }
+      if (n === 'skills' && currentNpcPatchId && inNpcTraits) {
+        const patch = normalized.npcSkillOps.get(currentNpcPatchId);
+        if (patch) {
+          for (const [k, v] of Object.entries(patch)) attrs[k] = String(v);
+          stats.npcSkillsUpdated += 1;
+        }
+      }
+      if (n === 'skill' && currentNpcPatchId && inNpcTraits) {
+        const type = String(attrs.type || '').trim();
+        const patch = normalized.npcSkillOps.get(currentNpcPatchId);
+        if (type) npcSeenSkillTypes.add(type);
+        if (patch && Object.prototype.hasOwnProperty.call(patch, type)) {
+          attrs.value = String(patch[type]);
+          stats.npcSkillsUpdated += 1;
+        }
+      }
+
+      if (shipId && ['modification', 'engine', 'paint', 'ship', 'weapon'].includes(n)) {
+        const activePartId = componentStack[componentStack.length - 1]?.id || shipId;
+        const key = `${activePartId}|${n}`;
+        const localIndex = partCounters.get(key) || 0;
+        partCounters.set(key, localIndex + 1);
+
+        const globalModIndex = shipModCounters.get(shipId) || 0;
+        shipModCounters.set(shipId, globalModIndex + 1);
+
+        const corePatch = normalized.shipCoreModOps.get(shipId)?.[n];
+        if (corePatch && activePartId === shipId && ['engine', 'paint', 'ship'].includes(n)) {
+          Object.assign(attrs, Object.fromEntries(Object.entries(corePatch).map(([k, v]) => [k, String(v)])));
+          stats.shipModificationValuesUpdated += 1;
+        }
+
+        const legacyPatch = normalized.shipModificationOps.get(shipId)?.get(globalModIndex);
+        if (legacyPatch) {
+          Object.assign(attrs, Object.fromEntries(Object.entries(legacyPatch).map(([k, v]) => [k, String(v)])));
+          stats.shipModificationValuesUpdated += 1;
+        }
+
+        const partPatch = normalized.partModificationOps.get(activePartId)?.get(n)?.get(localIndex);
+        if (partPatch) {
+          Object.assign(attrs, Object.fromEntries(Object.entries(partPatch).map(([k, v]) => [k, String(v)])));
+          stats.shipModificationValuesUpdated += 1;
+        }
+      }
+
+      output.write(serializeOpenTag(node.name, attrs));
+    });
 
     parser.on('closetag', (name) => {
       const n = name.toLowerCase();
       stack.pop();
-
-      if (npcCapture) {
-        npcCapture.parts.push(`</${name}>`);
-        if (n === 'component' && stack.length < npcCapture.depth) {
-          const patch = normalized.npcSkillOps.get(npcCapture.npcId) || {};
-          const patched = patchNpcComponentXml(npcCapture.parts.join(''), patch);
-          if (patched.applied) stats.npcSkillsUpdated += 1;
-          if (!patched.applied && patched.reason === 'no_traits') stats.npcSkillsSkippedNoTraits += 1;
-          output.write(patched.xml);
-          npcCapture = null;
-        }
-        return;
-      }
-
-      if (shipCapture) {
-        shipCapture.parts.push(`</${name}>`);
-        if (n === 'component' && stack.length < shipCapture.depth) {
-          const crewPatch = normalized.shipCrewSkillOps.get(shipCapture.shipId) || new Map();
-          const modPatch = normalized.shipModificationOps.get(shipCapture.shipId) || new Map();
-          const patched = patchShipComponentXml(shipCapture.parts.join(''), crewPatch, modPatch);
-          output.write(patched.xml);
-          shipCapture = null;
-        }
-        return;
-      }
 
       if (skipStack.length) {
         const skipped = skipStack.pop();
@@ -383,17 +282,12 @@ async function exportPatchedSave({ sourcePath, outputPath, patches, compress = t
           output.write(`<relation faction="player" relation="${esc(normalized.relations.get(currentRelationsFaction).relation)}"></relation>`);
           stats.relationsInserted += 1;
         }
-        inRelations = false;
-        currentRelationsFaction = null;
-        foundRelationTargets = new Set();
+        inRelations = false; currentRelationsFaction = null; foundRelationTargets = new Set();
       }
 
       if (n === 'blueprints' && inBlueprints) {
         for (const ware of normalized.unlockBlueprintWares.values()) {
-          if (!seenBlueprintWares.has(ware)) {
-            output.write(`<blueprint ware="${esc(ware)}"></blueprint>`);
-            stats.blueprintsInserted += 1;
-          }
+          if (!seenBlueprintWares.has(ware)) { output.write(`<blueprint ware="${esc(ware)}"></blueprint>`); stats.blueprintsInserted += 1; }
         }
         inBlueprints = false;
       }
@@ -412,12 +306,8 @@ async function exportPatchedSave({ sourcePath, outputPath, patches, compress = t
         for (const [typeName, factionsSet] of normalized.licenceOps.addTypes.entries()) {
           if (!seenLicenceTypes.has(typeName) && !normalized.licenceOps.removeTypes.has(typeName)) {
             const factions = new Set(factionsSet);
-            if (normalized.licenceOps.addFactionsByType.has(typeName)) {
-              normalized.licenceOps.addFactionsByType.get(typeName).forEach((id) => factions.add(id));
-            }
-            if (normalized.licenceOps.removeFactionsByType.has(typeName)) {
-              normalized.licenceOps.removeFactionsByType.get(typeName).forEach((id) => factions.delete(id));
-            }
+            if (normalized.licenceOps.addFactionsByType.has(typeName)) normalized.licenceOps.addFactionsByType.get(typeName).forEach((id) => factions.add(id));
+            if (normalized.licenceOps.removeFactionsByType.has(typeName)) normalized.licenceOps.removeFactionsByType.get(typeName).forEach((id) => factions.delete(id));
             output.write(`<licence type="${esc(typeName)}" factions="${esc(stringifyFactionList(Array.from(factions)))}"/>`);
             stats.licencesInserted += 1;
           }
@@ -431,53 +321,56 @@ async function exportPatchedSave({ sourcePath, outputPath, patches, compress = t
         inPlayerLicences = false;
       }
 
-      if (n === 'info') inInfo = false;
-
       if (n === 'faction') {
         if (inPlayerFaction && !playerLicencesSeen && hasLicencePatches(normalized)) {
           const createdTypes = new Set();
           output.write('<licences>');
-
           for (const [typeName, addSet] of normalized.licenceOps.addFactionsByType.entries()) {
             if (normalized.licenceOps.removeTypes.has(typeName)) continue;
             output.write(`<licence type="${esc(typeName)}" factions="${esc(stringifyFactionList(Array.from(addSet)))}"/>`);
             createdTypes.add(typeName);
             stats.licencesInserted += 1;
           }
-
           for (const [typeName, factionsSet] of normalized.licenceOps.addTypes.entries()) {
             if (createdTypes.has(typeName) || normalized.licenceOps.removeTypes.has(typeName)) continue;
             const factions = new Set(factionsSet);
-            if (normalized.licenceOps.addFactionsByType.has(typeName)) {
-              normalized.licenceOps.addFactionsByType.get(typeName).forEach((id) => factions.add(id));
-            }
-            if (normalized.licenceOps.removeFactionsByType.has(typeName)) {
-              normalized.licenceOps.removeFactionsByType.get(typeName).forEach((id) => factions.delete(id));
-            }
+            if (normalized.licenceOps.addFactionsByType.has(typeName)) normalized.licenceOps.addFactionsByType.get(typeName).forEach((id) => factions.add(id));
+            if (normalized.licenceOps.removeFactionsByType.has(typeName)) normalized.licenceOps.removeFactionsByType.get(typeName).forEach((id) => factions.delete(id));
             output.write(`<licence type="${esc(typeName)}" factions="${esc(stringifyFactionList(Array.from(factions)))}"/>`);
             stats.licencesInserted += 1;
           }
-
           output.write('</licences>');
         }
-        currentFactionId = null;
-        inPlayerFaction = false;
+        currentFactionId = null; inPlayerFaction = false;
       }
 
-      output.write(`</${name}>`);
-      if (n === 'component' && inPlayerComponent && stack.length < playerComponentDepth) {
-        inPlayerComponent = false;
-        playerComponentDepth = -1;
+      if (n === 'traits' && currentNpcPatchId && inNpcTraits) {
+        const patch = normalized.npcSkillOps.get(currentNpcPatchId) || {};
+        for (const [skillType, value] of Object.entries(patch)) {
+          if (!npcSeenSkillTypes.has(skillType)) {
+            output.write(`<skill type="${esc(skillType)}" value="${esc(value)}"></skill>`);
+            stats.npcSkillsUpdated += 1;
+          }
+        }
+        inNpcTraits = false;
       }
+      if (n === 'component') {
+        const popped = componentStack.pop();
+        if ((popped?.className === 'npc' || popped?.className === 'computer') && currentOfficerId === popped.id) currentOfficerId = null;
+        if (popped?.className === 'npc' && currentNpcPatchId === popped.id) { currentNpcPatchId = null; inNpcTraits = false; npcSeenSkillTypes = new Set(); }
+      }
+      if (n === 'component' && inPlayerComponent && stack.length < playerComponentDepth) { inPlayerComponent = false; playerComponentDepth = -1; }
+      if (n === 'person') currentShipPersonIndex = -1;
+      if (n === 'people') currentShipPeopleId = null;
+      if (n === 'traits') inOfficerTraits = false;
+      if (n === 'info') inInfo = false;
+
+      output.write(`</${name}>`);
     });
 
     parser.on('end', () => {
-      for (const factionId of normalized.relations.keys()) {
-        if (!relationFactionSeen.has(factionId)) return reject(new Error(`Cannot set relation: faction '${factionId}' not found in save`));
-      }
-      if (hasLicencePatches(normalized) && !playerFactionSeen) {
-        return reject(new Error('Cannot edit licences: <faction id="player"> not found in save'));
-      }
+      for (const factionId of normalized.relations.keys()) if (!relationFactionSeen.has(factionId)) return reject(new Error(`Cannot set relation: faction '${factionId}' not found in save`));
+      if (hasLicencePatches(normalized) && !playerFactionSeen) return reject(new Error('Cannot edit licences: <faction id="player"> not found in save'));
       output.end();
     });
 
@@ -492,22 +385,6 @@ async function exportPatchedSave({ sourcePath, outputPath, patches, compress = t
   });
 
   await fs.rename(tmp, outputPath);
-
-  if (normalized.shipCrewSkillOps.size || normalized.shipModificationOps.size) {
-    let rewritten = await fs.readFile(outputPath, 'utf8');
-    for (const shipId of new Set([...normalized.shipCrewSkillOps.keys(), ...normalized.shipModificationOps.keys()])) {
-      const crewPatch = normalized.shipCrewSkillOps.get(shipId) || new Map();
-      const modPatch = normalized.shipModificationOps.get(shipId) || new Map();
-      const re = new RegExp(`<component\\b[^>]*id="${escapeRegExp(shipId)}"[^>]*>[\\s\\S]*?<\\/component>`, 'i');
-      const m = rewritten.match(re);
-      if (!m) continue;
-      const patched = patchShipComponentXml(m[0], crewPatch, modPatch);
-      stats.shipCrewSkillsUpdated += patched.crewUpdated;
-      stats.shipModificationValuesUpdated += patched.modUpdated;
-      rewritten = rewritten.replace(m[0], patched.xml);
-    }
-    await fs.writeFile(outputPath, rewritten, 'utf8');
-  }
 
   return {
     outputPath,

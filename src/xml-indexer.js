@@ -1,87 +1,88 @@
 const sax = require('sax');
 const { createInputStream } = require('./stream-utils');
 
+const KNOWN_SKILLS = ['morale', 'piloting', 'management', 'engineering', 'boarding'];
+
+function toAttrsObj(attrs) {
+  return Object.fromEntries(Object.entries(attrs).map(([k, v]) => [k, String(v)]));
+}
+
 async function buildIndex(filePath) {
   return new Promise((resolve, reject) => {
     const parser = sax.createStream(true, { trim: true });
     const input = createInputStream(filePath);
 
     const model = {
-      metadata: {
-        filePath,
-        parsedAt: new Date().toISOString(),
-        saveName: '',
-        saveDate: '',
-        gameId: '',
-        gameVersion: '',
-        gameBuild: '',
-        modified: null,
-        time: '',
-        code: '',
-        original: '',
-        originalBuild: '',
-        start: '',
-        seed: '',
-        guid: '',
-        playerName: '',
-        extensions: { active: [], history: [] }
-      },
-      credits: {
-        playerName: '',
-        playerLocation: '',
-        playerMoney: '',
-        statMoneyPlayer: '',
-        playerWalletAccountId: '',
-        playerWalletAmount: '',
-        walletAccountOccurrences: 0
-      },
+      metadata: { filePath, parsedAt: new Date().toISOString(), saveName: '', saveDate: '', gameId: '', gameVersion: '', gameBuild: '', modified: null, time: '', code: '', original: '', originalBuild: '', start: '', seed: '', guid: '', playerName: '', extensions: { active: [], history: [] } },
+      credits: { playerName: '', playerLocation: '', playerMoney: '', statMoneyPlayer: '', playerWalletAccountId: '', playerWalletAmount: '', walletAccountOccurrences: 0 },
       blueprints: { owned: [] },
       relations: { player: [], byFaction: {}, boostersByFaction: {}, playerBoosters: [] },
       licences: [],
-      licencesModel: {
-        playerFactionFound: false,
-        licencesBlockFound: false,
-        licencesByType: {},
-        allLicenceTypes: [],
-        allFactionsInLicences: []
-      },
-      inventory: { player: {}, playerList: [] }
-      ,
-      skillsModel: {
-        npcsById: {},
-        postsByContainerId: {},
-        containerById: {},
-        supportedSkillKeys: [],
-        hasSkillsAttributes: false,
-        hasSkillNodes: false,
-        npcAssignmentsById: {},
-        playerShips: {}
-      }
+      licencesModel: { playerFactionFound: false, licencesBlockFound: false, licencesByType: {}, allLicenceTypes: [], allFactionsInLicences: [] },
+      inventory: { player: {}, playerList: [] },
+      skillsModel: { npcsById: {}, postsByContainerId: {}, containerById: {}, supportedSkillKeys: [], hasSkillsAttributes: false, hasSkillNodes: false, npcAssignmentsById: {}, playerShips: {} },
+      shipsModel: { allShipsById: {}, allShipIds: [], myShipIds: [] }
     };
 
     const stack = [];
+    const componentStack = [];
     let currentFactionId = null;
     let inPlayerFaction = false;
     let inPlayerLicences = false;
     let inPlayerComponent = false;
     let playerComponentDepth = -1;
     let inPlayerInventory = false;
-
     let inInfo = false;
     let inInfoPatches = false;
     let inInfoPatchHistory = false;
-    const knownSkillKeys = new Set(['morale', 'piloting', 'management', 'engineering', 'boarding']);
-    const detectedSkillKeys = new Set();
-    const componentStack = [];
+
     let currentNpcId = null;
     let inNpcTraits = false;
-    let playerShipStack = [];
+    const detectedSkillKeys = new Set();
+    const shipsById = model.shipsModel.allShipsById;
+    const partTagCounters = new Map();
+
     let currentShipPersonIndex = -1;
+    let currentShipPeopleId = null;
+    let currentOfficerId = null;
+
+    function activeShipId() {
+      for (let i = componentStack.length - 1; i >= 0; i -= 1) if (componentStack[i].isShip) return componentStack[i].id;
+      return null;
+    }
 
     function parseIntMaybe(value) {
       const num = Number(value);
       if (!Number.isFinite(num)) return null;
       return Math.trunc(num);
+    }
+
+    function ensureShip(attrs) {
+      const id = String(attrs.id || '');
+      const className = String(attrs.class || '');
+      if (!id || !className.startsWith('ship_')) return null;
+      if (!shipsById[id]) {
+        shipsById[id] = {
+          id,
+          class: className,
+          macro: String(attrs.macro || ''),
+          code: String(attrs.code || ''),
+          owner: String(attrs.owner || ''),
+          name: String(attrs.name || id),
+          crew: [],
+          officers: [],
+          modifications: [],
+          partModifications: [],
+          location: { spaceId: '', x: '', y: '', z: '' },
+          docked: false
+        };
+      }
+      const ship = shipsById[id];
+      if (attrs.name !== undefined) ship.name = String(attrs.name || ship.name);
+      if (attrs.owner !== undefined) ship.owner = String(attrs.owner || ship.owner);
+      if (attrs.code !== undefined) ship.code = String(attrs.code || ship.code);
+      if (attrs.macro !== undefined) ship.macro = String(attrs.macro || ship.macro);
+      return ship;
     }
 
     parser.on('opentag', (node) => {
@@ -92,13 +93,10 @@ async function buildIndex(filePath) {
       if (name === 'info') inInfo = true;
       if (name === 'patches' && inInfo) inInfoPatches = true;
       if (name === 'history' && inInfoPatches) inInfoPatchHistory = true;
-
       if (name === 'save' && attrs.name !== undefined && inInfo) {
         model.metadata.saveName = String(attrs.name);
         model.metadata.saveDate = String(attrs.date ?? '');
       }
-
-
       if (name === 'game' && inInfo) {
         model.metadata.gameId = String(attrs.id ?? '');
         model.metadata.gameVersion = String(attrs.version ?? '');
@@ -112,19 +110,11 @@ async function buildIndex(filePath) {
         model.metadata.seed = String(attrs.seed ?? '');
         model.metadata.guid = String(attrs.guid ?? '');
       }
-
-      if (name === 'player' && inInfo) {
-        model.metadata.playerName = String(attrs.name ?? '');
-      }
-
+      if (name === 'player' && inInfo) model.metadata.playerName = String(attrs.name ?? '');
       if (name === 'patch' && inInfoPatches) {
         const extensionId = String(attrs.extension ?? '').trim();
         if (extensionId) {
-          const patchInfo = {
-            id: extensionId,
-            version: String(attrs.version ?? ''),
-            name: String(attrs.name ?? '')
-          };
+          const patchInfo = { id: extensionId, version: String(attrs.version ?? ''), name: String(attrs.name ?? '') };
           if (inInfoPatchHistory) model.metadata.extensions.history.push(patchInfo);
           else model.metadata.extensions.active.push(patchInfo);
         }
@@ -135,27 +125,20 @@ async function buildIndex(filePath) {
         model.credits.playerLocation = String(attrs.location ?? '');
         model.credits.playerMoney = String(attrs.money);
       }
-
-      if (name === 'stat' && attrs.id === 'money_player') {
-        model.credits.statMoneyPlayer = String(attrs.value ?? '');
-      }
+      if (name === 'stat' && attrs.id === 'money_player') model.credits.statMoneyPlayer = String(attrs.value ?? '');
 
       if (name === 'faction') {
         currentFactionId = String(attrs.id ?? '');
         inPlayerFaction = currentFactionId === 'player';
         if (inPlayerFaction) model.licencesModel.playerFactionFound = true;
       }
-
       if (name === 'account') {
         const accountId = String(attrs.id ?? '');
         if (inPlayerFaction && !model.credits.playerWalletAccountId) {
           model.credits.playerWalletAccountId = accountId;
           model.credits.playerWalletAmount = String(attrs.amount ?? '');
         }
-
-        if (model.credits.playerWalletAccountId && accountId === model.credits.playerWalletAccountId) {
-          model.credits.walletAccountOccurrences += 1;
-        }
+        if (model.credits.playerWalletAccountId && accountId === model.credits.playerWalletAccountId) model.credits.walletAccountOccurrences += 1;
       }
 
       if (name === 'blueprint' && stack[stack.length - 2] === 'blueprints') {
@@ -168,20 +151,15 @@ async function buildIndex(filePath) {
         const relation = String(attrs.relation ?? '');
         if (!model.relations.byFaction[currentFactionId]) model.relations.byFaction[currentFactionId] = [];
         model.relations.byFaction[currentFactionId].push({ targetFactionId: faction, value: relation });
-        if (currentFactionId === 'player') {
-          model.relations.player.push({ targetFactionId: faction, value: relation });
-        }
+        if (currentFactionId === 'player') model.relations.player.push({ targetFactionId: faction, value: relation });
       }
-
       if (name === 'booster' && stack.includes('relations') && currentFactionId) {
         const faction = String(attrs.faction ?? '');
         const relation = String(attrs.relation ?? '');
         const time = String(attrs.time ?? '');
         if (!model.relations.boostersByFaction[currentFactionId]) model.relations.boostersByFaction[currentFactionId] = [];
         model.relations.boostersByFaction[currentFactionId].push({ targetFactionId: faction, value: relation, time });
-        if (currentFactionId === 'player') {
-          model.relations.playerBoosters.push({ targetFactionId: faction, value: relation, time });
-        }
+        if (currentFactionId === 'player') model.relations.playerBoosters.push({ targetFactionId: faction, value: relation, time });
       }
 
       if (name === 'licences' && inPlayerFaction) {
@@ -197,80 +175,46 @@ async function buildIndex(filePath) {
       if (name === 'component') {
         const componentId = String(attrs.id ?? '');
         const className = String(attrs.class ?? '');
-        const componentInfo = {
-          id: componentId,
-          class: className,
-          name: String(attrs.name ?? ''),
-          macro: String(attrs.macro ?? ''),
-          code: String(attrs.code ?? ''),
-          owner: String(attrs.owner ?? ''),
-          location: String(attrs.location ?? ''),
-          isNpc: className === 'npc' && Boolean(componentId),
-          isContainer: Boolean(componentId) && (className.includes('ship') || className.includes('station'))
-        };
-        componentStack.push(componentInfo);
+        const ship = ensureShip(attrs);
+        const parentShipId = activeShipId();
+        componentStack.push({ id: componentId, className, isShip: Boolean(ship), parentShipId, isOfficer: className === 'npc' || className === 'computer' });
 
-        if (componentInfo.isNpc) {
+        if (ship && parentShipId) ship.docked = true;
+
+        if (componentId && className === 'npc') {
           currentNpcId = componentId;
-          if (!model.skillsModel.npcsById[currentNpcId]) {
-            model.skillsModel.npcsById[currentNpcId] = {
-              id: currentNpcId,
-              name: componentInfo.name || '',
-              owner: componentInfo.owner || '',
-              skills: {},
-              npcseed: ''
-            };
-          }
+          if (!model.skillsModel.npcsById[componentId]) model.skillsModel.npcsById[componentId] = { id: componentId, name: String(attrs.name || ''), owner: String(attrs.owner || ''), skills: {}, npcseed: '' };
         }
 
-        if (componentInfo.isContainer) {
-          model.skillsModel.containerById[componentId] = {
-            id: componentId,
-            class: className,
-            macro: componentInfo.macro || '',
-            code: componentInfo.code || '',
-            owner: componentInfo.owner || '',
-            name: componentInfo.name || '',
-            bestEffortLocation: componentInfo.location || ''
-          };
+        if (componentId && (className.includes('ship') || className.includes('station'))) {
+          model.skillsModel.containerById[componentId] = { id: componentId, class: className, macro: String(attrs.macro || ''), code: String(attrs.code || ''), owner: String(attrs.owner || ''), name: String(attrs.name || ''), bestEffortLocation: String(attrs.location || '') };
         }
 
-        if (Boolean(componentId) && className.includes('ship') && componentInfo.owner === 'player') {
-          if (!model.skillsModel.playerShips[componentId]) {
-            model.skillsModel.playerShips[componentId] = {
-              id: componentId,
-              class: className,
-              macro: componentInfo.macro || '',
-              code: componentInfo.code || '',
-              owner: componentInfo.owner || '',
-              name: componentInfo.name || componentId,
-              crew: [],
-              modifications: []
-            };
-          }
-          playerShipStack.push(componentId);
+        if (ship && ship.owner === 'player') model.skillsModel.playerShips[ship.id] = ship;
+
+        if (componentId && (className === 'npc' || className === 'computer') && parentShipId && shipsById[parentShipId]) {
+          const officer = { id: componentId, class: className, shipId: parentShipId, name: String(attrs.name || ''), code: String(attrs.code || ''), post: '', skills: {} };
+          shipsById[parentShipId].officers.push(officer);
+          currentOfficerId = componentId;
         }
       }
 
       const activeComponent = componentStack[componentStack.length - 1];
-      if (name === 'traits' && activeComponent?.isNpc) inNpcTraits = true;
-      if (name === 'npcseed' && activeComponent?.isNpc && currentNpcId) {
-        model.skillsModel.npcsById[currentNpcId].npcseed = String(attrs.seed ?? '');
-      }
-      if (name === 'skills' && inNpcTraits && activeComponent?.isNpc && currentNpcId) {
+      const shipId = activeShipId();
+
+      if (name === 'traits' && (activeComponent?.className === 'npc' || activeComponent?.className === 'computer')) inNpcTraits = true;
+      if (name === 'npcseed' && activeComponent?.className === 'npc' && currentNpcId) model.skillsModel.npcsById[currentNpcId].npcseed = String(attrs.seed ?? '');
+      if (name === 'skills' && inNpcTraits && activeComponent?.className === 'npc' && currentNpcId) {
         model.skillsModel.hasSkillsAttributes = true;
-        for (const key of knownSkillKeys) {
-          if (attrs[key] !== undefined) {
-            const parsed = parseIntMaybe(attrs[key]);
-            if (parsed !== null) model.skillsModel.npcsById[currentNpcId].skills[key] = parsed;
-            detectedSkillKeys.add(key);
-          }
+        for (const key of KNOWN_SKILLS) if (attrs[key] !== undefined) {
+          const parsed = parseIntMaybe(attrs[key]);
+          if (parsed !== null) model.skillsModel.npcsById[currentNpcId].skills[key] = parsed;
+          detectedSkillKeys.add(key);
         }
       }
-
-      if (name === 'skill' && inNpcTraits && activeComponent?.isNpc && currentNpcId) {
+      if (name === 'skill' && inNpcTraits && activeComponent?.className === 'npc' && currentNpcId) {
         const type = String(attrs.type ?? '').trim();
-        if (knownSkillKeys.has(type)) {
+        if (KNOWN_SKILLS.includes(type)) {
           const parsed = parseIntMaybe(attrs.value);
           if (parsed !== null) model.skillsModel.npcsById[currentNpcId].skills[type] = parsed;
           detectedSkillKeys.add(type);
@@ -278,44 +222,49 @@ async function buildIndex(filePath) {
         }
       }
 
-      const currentShipId = playerShipStack[playerShipStack.length - 1];
-      if (name === 'person' && currentShipId && stack.includes('people')) {
-        const ship = model.skillsModel.playerShips[currentShipId];
-        currentShipPersonIndex = ship.crew.length;
-        ship.crew.push({
-          index: currentShipPersonIndex,
-          role: String(attrs.role ?? ''),
-          macro: String(attrs.macro ?? ''),
-          skills: {}
-        });
+      if (name === 'entity' && currentOfficerId && shipId) {
+        const officer = shipsById[shipId]?.officers?.find((o) => o.id === currentOfficerId);
+        if (officer) officer.post = String(attrs.post || attrs.type || '');
       }
-      if (name === 'skills' && currentShipId && stack.includes('people') && currentShipPersonIndex >= 0) {
-        const ship = model.skillsModel.playerShips[currentShipId];
-        const crew = ship.crew[currentShipPersonIndex];
-        for (const key of knownSkillKeys) {
-          if (attrs[key] !== undefined) {
-            const parsed = parseIntMaybe(attrs[key]);
-            if (parsed !== null) crew.skills[key] = parsed;
-          }
+      if (name === 'skills' && currentOfficerId && inNpcTraits && shipId) {
+        const officer = shipsById[shipId]?.officers?.find((o) => o.id === currentOfficerId);
+        if (officer) {
+          for (const key of KNOWN_SKILLS) if (attrs[key] !== undefined) officer.skills[key] = parseIntMaybe(attrs[key]) ?? 0;
         }
       }
-      if (name === 'modification' && currentShipId) {
-        const ship = model.skillsModel.playerShips[currentShipId];
-        ship.modifications.push({
-          index: ship.modifications.length,
-          attrs: Object.fromEntries(Object.entries(attrs).map(([k, v]) => [k, String(v)]))
-        });
+
+      if (name === 'people' && shipId) currentShipPeopleId = shipId;
+      if (name === 'person' && currentShipPeopleId && shipsById[currentShipPeopleId]) {
+        const ship = shipsById[currentShipPeopleId];
+        currentShipPersonIndex = ship.crew.length;
+        ship.crew.push({ index: currentShipPersonIndex, role: String(attrs.role ?? ''), macro: String(attrs.macro ?? ''), npcseed: String(attrs.npcseed ?? ''), skills: {} });
       }
-      if ((name === 'engine' || name === 'ship' || name === 'paint' || name === 'weapon') && currentShipId && stack.includes('modification')) {
-        const ship = model.skillsModel.playerShips[currentShipId];
-        ship.modifications.push({
-          index: ship.modifications.length,
-          kind: name,
-          attrs: Object.fromEntries(Object.entries(attrs).map(([k, v]) => [k, String(v)]))
-        });
+      if (name === 'skills' && currentShipPeopleId && currentShipPersonIndex >= 0) {
+        const crew = shipsById[currentShipPeopleId]?.crew?.[currentShipPersonIndex];
+        if (crew) for (const key of KNOWN_SKILLS) if (attrs[key] !== undefined) crew.skills[key] = parseIntMaybe(attrs[key]) ?? 0;
       }
 
-      if (name === 'post' && activeComponent?.isContainer && stack.includes('control')) {
+      if (shipId && ['modification', 'engine', 'paint', 'ship', 'weapon'].includes(name)) {
+        const partId = String(activeComponent?.id || shipId);
+        const counterKey = `${partId}|${name}`;
+        const localIndex = partTagCounters.get(counterKey) || 0;
+        partTagCounters.set(counterKey, localIndex + 1);
+        shipsById[shipId].partModifications.push({ shipId, partComponentId: partId, tagType: name, localIndex, attrs: toAttrsObj(attrs) });
+        shipsById[shipId].modifications.push({ index: shipsById[shipId].modifications.length, kind: name, attrs: toAttrsObj(attrs) });
+      }
+
+      if (name === 'read' && shipId && attrs.space !== undefined) {
+        const ship = shipsById[shipId];
+        if (!ship.location.spaceId) ship.location.spaceId = String(attrs.space);
+      }
+      if (name === 'offset' && shipId && attrs.x !== undefined && attrs.y !== undefined && attrs.z !== undefined) {
+        const ship = shipsById[shipId];
+        if (!ship.location.x && !ship.location.y && !ship.location.z) {
+          ship.location.x = String(attrs.x); ship.location.y = String(attrs.y); ship.location.z = String(attrs.z);
+        }
+      }
+
+      if (name === 'post' && activeComponent?.id && stack.includes('control')) {
         const npcId = String(attrs.component ?? '').trim();
         const postId = String(attrs.id ?? '').trim();
         if (npcId) {
@@ -324,28 +273,19 @@ async function buildIndex(filePath) {
         }
       }
 
-      if (name === 'inventory' && inPlayerComponent) {
-        inPlayerInventory = true;
-      }
-
+      if (name === 'inventory' && inPlayerComponent) inPlayerInventory = true;
       if (name === 'ware' && inPlayerInventory) {
         const ware = String(attrs.ware ?? '');
         const amount = Number(attrs.amount ?? 0);
         if (ware) model.inventory.player[ware] = Number.isFinite(amount) ? amount : 0;
       }
-
       if (name === 'licence' && inPlayerLicences) {
         const type = String(attrs.type ?? '').trim();
         const factionsRaw = String(attrs.factions ?? '');
         model.licences.push({ type, factions: factionsRaw });
-
         if (type) {
           if (!model.licencesModel.licencesByType[type]) model.licencesModel.licencesByType[type] = new Set();
-          factionsRaw
-            .split(/\s+/)
-            .map((token) => token.trim())
-            .filter(Boolean)
-            .forEach((factionId) => model.licencesModel.licencesByType[type].add(factionId));
+          factionsRaw.split(/\s+/).map((t) => t.trim()).filter(Boolean).forEach((f) => model.licencesModel.licencesByType[type].add(f));
         }
       }
     });
@@ -360,15 +300,16 @@ async function buildIndex(filePath) {
       if (name === 'info') inInfo = false;
       if (name === 'inventory') inPlayerInventory = false;
       if (name === 'traits') inNpcTraits = false;
-      if (name === 'component' && inPlayerComponent && stack.length < playerComponentDepth) {
-        inPlayerComponent = false;
-        playerComponentDepth = -1;
-      }
+      if (name === 'people') currentShipPeopleId = null;
       if (name === 'person') currentShipPersonIndex = -1;
       if (name === 'component') {
         const popped = componentStack.pop();
-        if (popped?.isNpc) currentNpcId = null;
-        if (popped && popped.id && model.skillsModel.playerShips[popped.id]) playerShipStack.pop();
+        if (popped?.className === 'npc') currentNpcId = null;
+        if (popped?.isOfficer) currentOfficerId = null;
+      }
+      if (name === 'component' && inPlayerComponent && stack.length < playerComponentDepth) {
+        inPlayerComponent = false;
+        playerComponentDepth = -1;
       }
       if (name === 'faction') {
         currentFactionId = null;
@@ -382,6 +323,8 @@ async function buildIndex(filePath) {
       model.metadata.extensions.active = Array.from(new Map(model.metadata.extensions.active.map((item) => [item.id, item])).values());
       model.metadata.extensions.history = Array.from(new Map(model.metadata.extensions.history.map((item) => [item.id, item])).values());
       model.inventory.playerList = Object.entries(model.inventory.player).map(([ware, amount]) => ({ ware, amount }));
+      model.shipsModel.allShipIds = Object.keys(shipsById);
+      model.shipsModel.myShipIds = model.shipsModel.allShipIds.filter((id) => shipsById[id].owner === 'player');
 
       const allFactions = new Set();
       const sortedTypes = Object.keys(model.licencesModel.licencesByType).sort();
@@ -391,27 +334,18 @@ async function buildIndex(filePath) {
         sortedFactions.forEach((id) => allFactions.add(id));
         licencesByType[type] = sortedFactions;
       }
-
       model.licencesModel.licencesByType = licencesByType;
       model.licencesModel.allLicenceTypes = sortedTypes;
       model.licencesModel.allFactionsInLicences = Array.from(allFactions).sort();
 
       const contactFactions = new Set();
-      for (const entry of model.relations.player) {
-        if (entry.targetFactionId) contactFactions.add(entry.targetFactionId);
-      }
-      for (const entry of model.relations.playerBoosters) {
-        if (entry.targetFactionId) contactFactions.add(entry.targetFactionId);
-      }
+      for (const entry of model.relations.player) if (entry.targetFactionId) contactFactions.add(entry.targetFactionId);
+      for (const entry of model.relations.playerBoosters) if (entry.targetFactionId) contactFactions.add(entry.targetFactionId);
       for (const [factionId, relationEntries] of Object.entries(model.relations.byFaction)) {
-        for (const entry of relationEntries) {
-          if (entry.targetFactionId === 'player' && factionId) contactFactions.add(factionId);
-        }
+        for (const entry of relationEntries) if (entry.targetFactionId === 'player' && factionId) contactFactions.add(factionId);
       }
       for (const [factionId, boosterEntries] of Object.entries(model.relations.boostersByFaction)) {
-        for (const entry of boosterEntries) {
-          if (entry.targetFactionId === 'player' && factionId) contactFactions.add(factionId);
-        }
+        for (const entry of boosterEntries) if (entry.targetFactionId === 'player' && factionId) contactFactions.add(factionId);
       }
       model.licencesModel.playerContactFactions = Array.from(contactFactions).filter(Boolean).sort();
 
@@ -419,11 +353,7 @@ async function buildIndex(filePath) {
       for (const [containerId, posts] of Object.entries(model.skillsModel.postsByContainerId)) {
         for (const post of posts) {
           if (!model.skillsModel.npcAssignmentsById[post.npcId]) model.skillsModel.npcAssignmentsById[post.npcId] = [];
-          model.skillsModel.npcAssignmentsById[post.npcId].push({
-            containerId,
-            postId: post.postId,
-            container: model.skillsModel.containerById[containerId] || null
-          });
+          model.skillsModel.npcAssignmentsById[post.npcId].push({ containerId, postId: post.postId, container: model.skillsModel.containerById[containerId] || null });
         }
       }
 
