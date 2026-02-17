@@ -6,7 +6,7 @@ const { buildIndex } = require('./xml-indexer');
 
 const esc = (v) => String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
 const escText = (v) => String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;');
-
+const SKILL_KEYS = ['morale', 'piloting', 'management', 'engineering', 'boarding'];
 
 function hasLicencePatches(normalized) {
   return normalized.licenceOps.addFactionsByType.size > 0
@@ -20,10 +20,59 @@ function serializeOpenTag(nodeName, attrs) {
   return serialized ? `<${nodeName} ${serialized}>` : `<${nodeName}>`;
 }
 
+function patchNpcComponentXml(componentXml, skillPatch) {
+  const traitsMatch = componentXml.match(/<traits\b[^>]*>[\s\S]*?<\/traits>/i);
+  if (!traitsMatch) return { xml: componentXml, applied: false, reason: 'no_traits' };
+  const traitsXml = traitsMatch[0];
+
+  if (/<skills\b/i.test(traitsXml)) {
+    const patchedTraits = traitsXml.replace(/<skills\b([^>]*?)\/?>/i, (full, attrChunk) => {
+      const attrs = {};
+      for (const match of attrChunk.matchAll(/([\w:-]+)="([^"]*)"/g)) attrs[match[1]] = match[2];
+      for (const [key, value] of Object.entries(skillPatch)) attrs[key] = String(value);
+      const serialized = Object.entries(attrs).map(([k, v]) => `${k}="${esc(v)}"`).join(' ');
+      return `<skills${serialized ? ` ${serialized}` : ''}>`;
+    });
+    return { xml: componentXml.replace(traitsXml, patchedTraits), applied: true, reason: 'skills_attributes' };
+  }
+
+  if (/<skill\b/i.test(traitsXml)) {
+    const updated = { ...skillPatch };
+    let patchedTraits = traitsXml.replace(/<skill\b([^>]*)\/?\s*>/gi, (full, attrChunk) => {
+      const attrs = {};
+      for (const match of attrChunk.matchAll(/([\w:-]+)="([^"]*)"/g)) attrs[match[1]] = match[2];
+      const type = String(attrs.type || '').trim();
+      if (Object.prototype.hasOwnProperty.call(updated, type)) {
+        attrs.value = String(updated[type]);
+        delete updated[type];
+      }
+      const serialized = Object.entries(attrs).map(([k, v]) => `${k}="${esc(v)}"`).join(' ');
+      return `<skill ${serialized}>`;
+    });
+
+    if (Object.keys(updated).length) {
+      const inserts = Object.entries(updated).map(([type, value]) => `<skill type="${esc(type)}" value="${esc(value)}"></skill>`).join('');
+      patchedTraits = patchedTraits.replace(/<\/traits>$/i, `${inserts}</traits>`);
+    }
+
+    return { xml: componentXml.replace(traitsXml, patchedTraits), applied: true, reason: 'skill_nodes' };
+  }
+
+  return { xml: componentXml, applied: false, reason: 'unknown_traits_structure' };
+}
+
 async function exportPatchedSave({ sourcePath, outputPath, patches, compress = true, createBackup = true }) {
   patches.forEach(validatePatch);
   const normalized = normalizePatchList(patches);
   const index = await buildIndex(sourcePath);
+
+  const detectedSkillKeys = index.skillsModel?.supportedSkillKeys || [];
+  const allowedSkillKeys = new Set([...SKILL_KEYS, ...detectedSkillKeys]);
+  for (const [npcId, skillOps] of normalized.npcSkillOps.entries()) {
+    for (const key of Object.keys(skillOps)) {
+      if (!allowedSkillKeys.has(key)) throw new Error(`Cannot set NPC skill '${key}' for ${npcId}: key not detected in this save`);
+    }
+  }
 
   const tmp = `${outputPath}.tmp`;
   if (createBackup) await fs.copyFile(sourcePath, `${sourcePath}.backup`);
@@ -36,7 +85,9 @@ async function exportPatchedSave({ sourcePath, outputPath, patches, compress = t
     boostersDeleted: 0,
     licencesInserted: 0,
     playerNamesUpdated: 0,
-    modifiedFlagsUpdated: 0
+    modifiedFlagsUpdated: 0,
+    npcSkillsUpdated: 0,
+    npcSkillsSkippedNoTraits: 0
   };
 
   await new Promise((resolve, reject) => {
@@ -70,9 +121,15 @@ async function exportPatchedSave({ sourcePath, outputPath, patches, compress = t
     const seenInventoryWares = new Set();
 
     let inInfo = false;
+    let npcCapture = null;
+
+    function emit(text) {
+      if (npcCapture) npcCapture.parts.push(text);
+      else if (!skipStack.length) output.write(text);
+    }
 
     parser.on('processinginstruction', (pi) => {
-      if (!skipStack.length) output.write(`<?${pi.name} ${pi.body}?>`);
+      emit(`<?${pi.name} ${pi.body}?>`);
     });
 
     parser.on('opentag', (node) => {
@@ -83,8 +140,18 @@ async function exportPatchedSave({ sourcePath, outputPath, patches, compress = t
 
       if (n === 'info') inInfo = true;
 
+      if (npcCapture) {
+        emit(serializeOpenTag(node.name, attrs));
+        return;
+      }
+
       if (skipStack.length) {
         skipStack.push(n);
+        return;
+      }
+
+      if (n === 'component' && attrs.class === 'npc' && attrs.id && normalized.npcSkillOps.has(String(attrs.id))) {
+        npcCapture = { depth: stack.length, npcId: String(attrs.id), parts: [serializeOpenTag(node.name, attrs)] };
         return;
       }
 
@@ -102,7 +169,6 @@ async function exportPatchedSave({ sourcePath, outputPath, patches, compress = t
         if (inPlayerFaction) playerFactionSeen = true;
         if (normalized.relations.has(currentFactionId)) relationFactionSeen.add(currentFactionId);
       }
-
 
       if (n === 'player' && inInfo && normalized.setPlayerName !== null) {
         attrs.name = normalized.setPlayerName;
@@ -207,16 +273,29 @@ async function exportPatchedSave({ sourcePath, outputPath, patches, compress = t
         }
       }
 
-      output.write(serializeOpenTag(node.name, attrs));
+      emit(serializeOpenTag(node.name, attrs));
     });
 
-    parser.on('text', (text) => { if (!skipStack.length) output.write(escText(text)); });
-    parser.on('cdata', (text) => { if (!skipStack.length) output.write(`<![CDATA[${text}]]>`); });
-    parser.on('comment', (text) => { if (!skipStack.length) output.write(`<!--${text}-->`); });
+    parser.on('text', (text) => { emit(escText(text)); });
+    parser.on('cdata', (text) => { emit(`<![CDATA[${text}]]>`); });
+    parser.on('comment', (text) => { emit(`<!--${text}-->`); });
 
     parser.on('closetag', (name) => {
       const n = name.toLowerCase();
       stack.pop();
+
+      if (npcCapture) {
+        npcCapture.parts.push(`</${name}>`);
+        if (n === 'component' && stack.length < npcCapture.depth) {
+          const patch = normalized.npcSkillOps.get(npcCapture.npcId) || {};
+          const patched = patchNpcComponentXml(npcCapture.parts.join(''), patch);
+          if (patched.applied) stats.npcSkillsUpdated += 1;
+          if (!patched.applied && patched.reason === 'no_traits') stats.npcSkillsSkippedNoTraits += 1;
+          output.write(patched.xml);
+          npcCapture = null;
+        }
+        return;
+      }
 
       if (skipStack.length) {
         const skipped = skipStack.pop();

@@ -95,6 +95,16 @@ function validatePatch(patch) {
       if (!(patch.value === 0 || patch.value === 1)) throw new Error('SetModifiedFlag.value must be 0 or 1');
       break;
     }
+    case 'SetNpcSkills': {
+      if (typeof patch.npcId !== 'string' || !patch.npcId.trim()) throw new Error('SetNpcSkills.npcId must be non-empty');
+      if (!patch.skills || typeof patch.skills !== 'object') throw new Error('SetNpcSkills.skills must be an object');
+      const allowed = new Set(['morale', 'piloting', 'management', 'engineering', 'boarding']);
+      for (const [key, value] of Object.entries(patch.skills)) {
+        if (!allowed.has(key)) throw new Error(`SetNpcSkills.skills has unsupported key: ${key}`);
+        if (!Number.isFinite(Number(value))) throw new Error(`SetNpcSkills.skills.${key} must be numeric`);
+      }
+      break;
+    }
     default:
       throw new Error(`Unsupported patch type: ${patch.type}`);
   }
@@ -113,7 +123,8 @@ function normalizePatchList(patches = []) {
     },
     inventoryOps: new Map(),
     setPlayerName: null,
-    setModifiedFlag: null
+    setModifiedFlag: null,
+    npcSkillOps: new Map()
   };
 
   for (const patch of patches) {
@@ -169,6 +180,16 @@ function normalizePatchList(patches = []) {
       case 'SetModifiedFlag':
         normalized.setModifiedFlag = patch.value;
         break;
+      case 'SetNpcSkills': {
+        const npcId = patch.npcId.trim();
+        if (!normalized.npcSkillOps.has(npcId)) normalized.npcSkillOps.set(npcId, {});
+        const current = normalized.npcSkillOps.get(npcId);
+        for (const [key, value] of Object.entries(patch.skills)) {
+          // Conservative clamp: fixtures show small integer skill values; we cap to 0..20 for safety.
+          current[key] = clamp(Math.trunc(Number(value)), 0, 20);
+        }
+        break;
+      }
       default:
         break;
     }

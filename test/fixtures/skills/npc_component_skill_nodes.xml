@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<savegame>
+  <components>
+    <component class="npc" id="[0xBBB]" name="Iren Mott">
+      <traits>
+        <skill type="piloting" value="7"/>
+        <skill type="management" value="5"/>
+      </traits>
+    </component>
+  </components>
+</savegame>

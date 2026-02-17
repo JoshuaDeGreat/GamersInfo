@@ -24,3 +24,6 @@ main{padding:16px;overflow:auto}.card{background:var(--panel);padding:12px;borde
 
 .topbar span{font-size:12px;opacity:.9}
 .badge{display:inline-block;padding:2px 8px;border:1px solid #334155;border-radius:999px;background:#0b1220}
+.switch-row{display:flex;align-items:center;gap:8px}
+.skills-editor-grid{display:grid;grid-template-columns:repeat(3,minmax(120px,1fr));gap:8px;margin-bottom:10px}
+tr.active{outline:1px solid var(--accent)}

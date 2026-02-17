@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<savegame>
+  <components>
+    <component class="npc" id="[0xAAA]" name="Mina Talis">
+      <traits>
+        <skills morale="4" piloting="6" management="2" engineering="3" boarding="1"/>
+      </traits>
+      <npcseed seed="123456"/>
+    </component>
+  </components>
+</savegame>

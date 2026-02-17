@@ -46,6 +46,16 @@ async function buildIndex(filePath) {
         allFactionsInLicences: []
       },
       inventory: { player: {}, playerList: [] }
+      ,
+      skillsModel: {
+        npcsById: {},
+        postsByContainerId: {},
+        containerById: {},
+        supportedSkillKeys: [],
+        hasSkillsAttributes: false,
+        hasSkillNodes: false,
+        npcAssignmentsById: {}
+      }
     };
 
     const stack = [];
@@ -59,6 +69,17 @@ async function buildIndex(filePath) {
     let inInfo = false;
     let inInfoPatches = false;
     let inInfoPatchHistory = false;
+    const knownSkillKeys = new Set(['morale', 'piloting', 'management', 'engineering', 'boarding']);
+    const detectedSkillKeys = new Set();
+    const componentStack = [];
+    let currentNpcId = null;
+    let inNpcTraits = false;
+
+    function parseIntMaybe(value) {
+      const num = Number(value);
+      if (!Number.isFinite(num)) return null;
+      return Math.trunc(num);
+    }
 
     parser.on('opentag', (node) => {
       const name = node.name.toLowerCase();
@@ -170,6 +191,83 @@ async function buildIndex(filePath) {
         playerComponentDepth = stack.length;
       }
 
+      if (name === 'component') {
+        const componentId = String(attrs.id ?? '');
+        const className = String(attrs.class ?? '');
+        const componentInfo = {
+          id: componentId,
+          class: className,
+          name: String(attrs.name ?? ''),
+          macro: String(attrs.macro ?? ''),
+          code: String(attrs.code ?? ''),
+          owner: String(attrs.owner ?? ''),
+          location: String(attrs.location ?? ''),
+          isNpc: className === 'npc' && Boolean(componentId),
+          isContainer: Boolean(componentId) && (className.includes('ship') || className.includes('station'))
+        };
+        componentStack.push(componentInfo);
+
+        if (componentInfo.isNpc) {
+          currentNpcId = componentId;
+          if (!model.skillsModel.npcsById[currentNpcId]) {
+            model.skillsModel.npcsById[currentNpcId] = {
+              id: currentNpcId,
+              name: componentInfo.name || '',
+              owner: componentInfo.owner || '',
+              skills: {},
+              npcseed: ''
+            };
+          }
+        }
+
+        if (componentInfo.isContainer) {
+          model.skillsModel.containerById[componentId] = {
+            id: componentId,
+            class: className,
+            macro: componentInfo.macro || '',
+            code: componentInfo.code || '',
+            owner: componentInfo.owner || '',
+            name: componentInfo.name || '',
+            bestEffortLocation: componentInfo.location || ''
+          };
+        }
+      }
+
+      const activeComponent = componentStack[componentStack.length - 1];
+      if (name === 'traits' && activeComponent?.isNpc) inNpcTraits = true;
+      if (name === 'npcseed' && activeComponent?.isNpc && currentNpcId) {
+        model.skillsModel.npcsById[currentNpcId].npcseed = String(attrs.seed ?? '');
+      }
+      if (name === 'skills' && inNpcTraits && activeComponent?.isNpc && currentNpcId) {
+        model.skillsModel.hasSkillsAttributes = true;
+        for (const key of knownSkillKeys) {
+          if (attrs[key] !== undefined) {
+            const parsed = parseIntMaybe(attrs[key]);
+            if (parsed !== null) model.skillsModel.npcsById[currentNpcId].skills[key] = parsed;
+            detectedSkillKeys.add(key);
+          }
+        }
+      }
+
+      if (name === 'skill' && inNpcTraits && activeComponent?.isNpc && currentNpcId) {
+        const type = String(attrs.type ?? '').trim();
+        if (knownSkillKeys.has(type)) {
+          const parsed = parseIntMaybe(attrs.value);
+          if (parsed !== null) model.skillsModel.npcsById[currentNpcId].skills[type] = parsed;
+          detectedSkillKeys.add(type);
+          model.skillsModel.hasSkillNodes = true;
+        }
+      }
+
+      if (name === 'post' && activeComponent?.isContainer && stack.includes('control')) {
+        const npcId = String(attrs.component ?? '').trim();
+        const postId = String(attrs.id ?? '').trim();
+        if (npcId) {
+          if (!model.skillsModel.postsByContainerId[activeComponent.id]) model.skillsModel.postsByContainerId[activeComponent.id] = [];
+          model.skillsModel.postsByContainerId[activeComponent.id].push({ postId, npcId });
+        }
+      }
+
       if (name === 'inventory' && inPlayerComponent) {
         inPlayerInventory = true;
       }
@@ -205,9 +303,14 @@ async function buildIndex(filePath) {
       if (name === 'patches' && inInfoPatches) inInfoPatches = false;
       if (name === 'info') inInfo = false;
       if (name === 'inventory') inPlayerInventory = false;
+      if (name === 'traits') inNpcTraits = false;
       if (name === 'component' && inPlayerComponent && stack.length < playerComponentDepth) {
         inPlayerComponent = false;
         playerComponentDepth = -1;
+      }
+      if (name === 'component') {
+        const popped = componentStack.pop();
+        if (popped?.isNpc) currentNpcId = null;
       }
       if (name === 'faction') {
         currentFactionId = null;
@@ -253,6 +356,18 @@ async function buildIndex(filePath) {
         }
       }
       model.licencesModel.playerContactFactions = Array.from(contactFactions).filter(Boolean).sort();
+
+      model.skillsModel.supportedSkillKeys = Array.from(detectedSkillKeys).sort();
+      for (const [containerId, posts] of Object.entries(model.skillsModel.postsByContainerId)) {
+        for (const post of posts) {
+          if (!model.skillsModel.npcAssignmentsById[post.npcId]) model.skillsModel.npcAssignmentsById[post.npcId] = [];
+          model.skillsModel.npcAssignmentsById[post.npcId].push({
+            containerId,
+            postId: post.postId,
+            container: model.skillsModel.containerById[containerId] || null
+          });
+        }
+      }
 
       resolve(model);
     });
