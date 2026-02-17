@@ -1,0 +1,15 @@
+<?xml version="1.0"?>
+<savegame>
+  <components>
+    <component class="station" id="[0xSTN]" name="Mercury Hub">
+      <control>
+        <post id="manager" component="[0xCCC]"/>
+      </control>
+    </component>
+    <component class="npc" id="[0xCCC]" name="Zora Fenn">
+      <traits>
+        <skills management="9" morale="3"/>
+      </traits>
+    </component>
+  </components>
+</savegame>

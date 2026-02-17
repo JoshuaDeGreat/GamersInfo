@@ -160,3 +160,16 @@ These datasets help choose valid IDs for patch payloads, though the rewriter its
 4. Support optional hard remove for inventory items (delete nodes), not just amount `0`.
 5. Add dry-run validation report: list matched vs unmatched patch targets before export.
 
+
+## Verified NPC skills schemas (streaming-safe)
+
+Supported and tested NPC structures:
+
+- `<component class="npc" id="[0x...]" name="...">` with `<traits><skills morale=".." piloting=".." management=".." engineering=".." boarding=".."/></traits>`.
+- `<component class="npc" id="[0x...]" ...>` with `<traits><skill type="management" value="5"/></traits>` style nodes.
+- Ship/station crew links from `<control><post id="aipilot|engineer|manager" component="[0xNPC]"/></control>` where `component` joins directly to NPC component `id`.
+
+Guardrails:
+- Only proven NPC component schemas are editable.
+- If NPC has no `<traits>` block, no traits are invented.
+- `<people><person>` editing is intentionally not supported due to weak/non-stable linking evidence.

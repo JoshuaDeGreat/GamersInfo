@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<savegame>
+  <components>
+    <component class="ship_s" id="[0xSHIP]" name="Pioneer">
+      <control>
+        <post id="aipilot" component="[0xAAA]"/>
+        <post id="engineer" component="[0xBBB]"/>
+      </control>
+    </component>
+    <component class="npc" id="[0xAAA]" name="Mina Talis">
+      <traits>
+        <skills morale="4" piloting="6"/>
+      </traits>
+    </component>
+    <component class="npc" id="[0xBBB]" name="Iren Mott">
+      <traits>
+        <skill type="engineering" value="8"/>
+      </traits>
+    </component>
+  </components>
+</savegame>

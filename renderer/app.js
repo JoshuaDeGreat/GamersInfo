@@ -1,4 +1,4 @@
-const tabs = ['Overview', 'Credits', 'Blueprints', 'Inventory', 'Relations', 'Licences', 'Changes Preview', 'Export'];
+const tabs = ['Overview', 'Credits', 'Blueprints', 'Inventory', 'Relations', 'Licences', 'Skills', 'Ships/Stations', 'Changes Preview', 'Export'];
 const WARNING_COPY = 'Editing saves may mark them as modified and may affect online/venture features. Always keep backups.';
 
 const state = {
@@ -9,8 +9,8 @@ const state = {
   undo: [],
   redo: [],
   dicts: { blueprints: {}, items: {}, factionsById: {}, licenceTypes: [], presets: { modparts: { name: 'Common Mod Parts Pack', items: [] } }, helpText: '' },
-  filters: { blueprintSearch: '', blueprintCategory: 'All', itemSearch: '', itemCategory: 'All', inventoryMode: 'set', relationMode: 'hard' },
-  ui: { selectedLicenceFactionId: '', licenceCatalogSearch: '' },
+  filters: { blueprintSearch: '', blueprintCategory: 'All', itemSearch: '', itemCategory: 'All', inventoryMode: 'set', relationMode: 'hard', skillsSearch: '' },
+  ui: { selectedLicenceFactionId: '', licenceCatalogSearch: '', selectedNpcId: '' },
   exportResult: null
 };
 
@@ -95,7 +95,7 @@ function renderOverview() {
     <div class="row"><label>Player Name <input id="playerNameInput" type="text" maxlength="64" value="${xmlEscape(playerName)}" placeholder="Player Name"/></label><button id="queuePlayerName">Queue SetPlayerName</button></div>
     <details class="card"><summary>Advanced: Modified Flag</summary>
       <p class="muted">Changing modified flag may not restore online/venture eligibility. Only change if you know what you’re doing.</p>
-      <div class="row"><label><input id="enableModifiedToggle" type="checkbox" ${patchMeta.modified !== null ? 'checked' : ''}/> Set modified flag</label><select id="modifiedSelect" ${patchMeta.modified === null ? 'disabled' : ''}><option value="0" ${(patchMeta.modified ?? (m.metadata.modified ? 1 : 0)) === 0 ? 'selected' : ''}>0</option><option value="1" ${(patchMeta.modified ?? (m.metadata.modified ? 1 : 0)) === 1 ? 'selected' : ''}>1</option></select></div>
+      <div class="row"><label class="switch-row">Modified override <input id="modifiedSlider" type="checkbox" ${(patchMeta.modified ?? (m.metadata.modified ? 1 : 0)) === 1 ? 'checked' : ''}/></label></div>
     </details>
   </div>`;
 }
@@ -236,7 +236,56 @@ function renderLicences() {
     }).join('')
     : '<p>No licence types discovered.</p>';
 
-  return `<div class="card"><h3>Licence Type Catalog</h3><input id="licCatalogSearch" placeholder="Search licence types" value="${state.ui.licenceCatalogSearch}"/><div class="licence-catalog-list">${catalogueRows || '<p>No matching licence types.</p>'}</div><p class="muted">Some licence types may be DLC/faction dependent. Add only what you recognise.</p></div><div class="card licence-layout"><div class="licence-factions"><h3>Factions</h3>${factionButtons}</div><div><h3>Player Licences for ${factionLabel(state.ui.selectedLicenceFactionId) || '(select faction)'}</h3>${!state.model.licencesModel.licencesBlockFound ? '<p class="banner">No licences block found in source save. New licences will be inserted on export.</p>' : ''}${typeRows}<div class="row" style="margin-top:10px"><button id="resetLicPanel">Reset changes</button></div></div></div>`;
+  return `<div class="card"><h3>Licence Type Catalog</h3><input id="licCatalogSearch" placeholder="Search licence types" value="${state.ui.licenceCatalogSearch}"/><div id="licenceCatalogList" class="licence-catalog-list">${catalogueRows || '<p>No matching licence types.</p>'}</div><p class="muted">Some licence types may be DLC/faction dependent. Add only what you recognise.</p></div><div class="card licence-layout"><div class="licence-factions"><h3>Factions</h3>${factionButtons}</div><div><h3>Player Licences for ${factionLabel(state.ui.selectedLicenceFactionId) || '(select faction)'}</h3>${!state.model.licencesModel.licencesBlockFound ? '<p class="banner">No licences block found in source save. New licences will be inserted on export.</p>' : ''}${typeRows}<div class="row" style="margin-top:10px"><button id="resetLicPanel">Reset changes</button></div></div></div>`;
+}
+
+
+function npcRowsFromModel() {
+  const skillsModel = state.model?.skillsModel;
+  if (!skillsModel) return [];
+  const search = state.filters.skillsSearch.trim().toLowerCase();
+  return Object.values(skillsModel.npcsById || {}).filter((npc) => !search || String(npc.name || '').toLowerCase().includes(search));
+}
+
+function renderSkills() {
+  if (!state.model) return '<div class="card">Import a save to edit NPC skills.</div>';
+  const skillsModel = state.model.skillsModel || {};
+  const supported = skillsModel.hasSkillsAttributes || skillsModel.hasSkillNodes;
+  const rows = npcRowsFromModel();
+  const selected = state.ui.selectedNpcId ? (skillsModel.npcsById || {})[state.ui.selectedNpcId] : rows[0];
+  if (selected && !state.ui.selectedNpcId) state.ui.selectedNpcId = selected.id;
+
+  const rowHtml = rows.map((npc) => {
+    const assignments = (skillsModel.npcAssignmentsById || {})[npc.id] || [];
+    const assignedTo = assignments.length ? assignments.map((a) => `${a.container?.name || a.containerId} (${a.postId})`).join(', ') : '<span class="badge">Unassigned</span>';
+    const s = npc.skills || {};
+    const isSelected = state.ui.selectedNpcId === npc.id ? 'active' : '';
+    return `<tr data-npc-row="${npc.id}" class="${isSelected}"><td>${xmlEscape(npc.name || '(unnamed)')}</td><td>${xmlEscape(npc.id)}</td><td>${assignedTo}</td><td>${s.morale ?? '—'}</td><td>${s.piloting ?? '—'}</td><td>${s.management ?? '—'}</td><td>${s.engineering ?? '—'}</td><td>${s.boarding ?? '—'}</td></tr>`;
+  }).join('');
+
+  const editor = !selected ? '<p>Select an NPC to edit.</p>' : (() => {
+    const hasSkills = Object.keys(selected.skills || {}).length > 0;
+    if (!supported) return '<p class="banner">Skills editing disabled: no supported skills structures detected in this save.</p>';
+    if (!hasSkills) return '<p class="banner">Skills not present for this NPC in save.</p>';
+    return `<div class="skills-editor-grid">${['morale','piloting','management','engineering','boarding'].map((k) => `<label>${k}<input type="number" min="0" max="20" value="${selected.skills[k] ?? 0}" data-skill-key="${k}"/></label>`).join('')}</div><button id="queueNpcSkills" data-npc-id="${selected.id}">Queue SetNpcSkills</button>`;
+  })();
+
+  return `<div class="card"><h3>Skills</h3><input id="skillsSearch" placeholder="Search NPC name" value="${xmlEscape(state.filters.skillsSearch)}"/><table class="table"><thead><tr><th>Name</th><th>NPC ID</th><th>Assigned to</th><th>Morale</th><th>Piloting</th><th>Management</th><th>Engineering</th><th>Boarding</th></tr></thead><tbody>${rowHtml || '<tr><td colspan="8">No NPCs found.</td></tr>'}</tbody></table></div><div class="card"><h3>Editor</h3>${editor}</div>`;
+}
+
+function renderShipsStations() {
+  if (!state.model) return '<div class="card">Import a save to view ship/station links.</div>';
+  const skillsModel = state.model.skillsModel || {};
+  const rows = Object.values(skillsModel.containerById || {}).map((container) => {
+    const posts = (skillsModel.postsByContainerId || {})[container.id] || [];
+    const postText = posts.map((post) => {
+      const npc = (skillsModel.npcsById || {})[post.npcId];
+      const roleSkill = post.postId === 'aipilot' ? 'piloting' : post.postId === 'engineer' ? 'engineering' : post.postId === 'manager' ? 'management' : 'morale';
+      return `${post.postId}: ${npc?.name || post.npcId} (${roleSkill} ${npc?.skills?.[roleSkill] ?? '—'})`;
+    }).join('<br/>') || '—';
+    return `<tr><td>${xmlEscape(container.name || container.id)}</td><td>${xmlEscape(container.class || '')}</td><td>${postText}</td></tr>`;
+  }).join('');
+  return `<div class="card"><h3>Ships/Stations Crew Links</h3><table class="table"><thead><tr><th>Container</th><th>Class</th><th>Pilot/Engineer/Manager</th></tr></thead><tbody>${rows || '<tr><td colspan="3">No linked posts found.</td></tr>'}</tbody></table></div>`;
 }
 
 function groupedPatches() {
@@ -276,7 +325,7 @@ function renderInventoryList() {
 
 function render() {
   renderTabs();
-  main.innerHTML = ({ Overview: renderOverview, Credits: renderCredits, Blueprints: renderBlueprints, Inventory: renderInventory, Relations: renderRelations, Licences: renderLicences, 'Changes Preview': renderChanges, Export: renderExport })[state.activeTab]();
+  main.innerHTML = ({ Overview: renderOverview, Credits: renderCredits, Blueprints: renderBlueprints, Inventory: renderInventory, Relations: renderRelations, Licences: renderLicences, Skills: renderSkills, 'Ships/Stations': renderShipsStations, 'Changes Preview': renderChanges, Export: renderExport })[state.activeTab]();
   wireEvents();
   renderStatusBar();
 
@@ -299,7 +348,7 @@ function render() {
 
 function wireEvents() {
   document.getElementById('queueCredits')?.addEventListener('click', () => { const value = Number(document.getElementById('creditsValue').value); if (!Number.isInteger(value) || value < 0) return; pushPatch({ type: 'SetCredits', value }); });
-  document.getElementById('bpSearch')?.addEventListener('input', (e) => { state.filters.blueprintSearch = e.target.value; render(); });
+  document.getElementById('bpSearch')?.addEventListener('input', (e) => { state.filters.blueprintSearch = e.target.value; if (state.activeTab === 'Blueprints') { const rows = filteredBlueprintRows(); renderVirtualRows('bpList', rows, (r) => `<span>${r.name}</span><span>${r.ware}</span><span>${r.category}</span><span>${r.owned ? 'Yes' : `<button data-add-blueprint="${r.ware}">Add</button>`}</span>`); } });
   document.getElementById('bpCategory')?.addEventListener('change', (e) => { state.filters.blueprintCategory = e.target.value; render(); });
   document.getElementById('unlockAll')?.addEventListener('click', () => pushPatch({ type: 'UnlockBlueprintWares', wares: Object.keys(state.dicts.blueprints) }));
   document.getElementById('unlockCategory')?.addEventListener('click', () => pushPatch({ type: 'UnlockBlueprintWares', wares: filteredBlueprintRows().map((r) => r.ware) }));
@@ -360,7 +409,15 @@ function wireEvents() {
   }));
   document.getElementById('licCatalogSearch')?.addEventListener('input', (event) => {
     state.ui.licenceCatalogSearch = event.target.value;
-    render();
+    const list = document.getElementById('licenceCatalogList');
+    if (!list) return;
+    const { byType } = licenceStateFromModelAndPatches();
+    const catalogueTypes = (state.dicts.licenceTypes || []).slice().sort();
+    const search = state.ui.licenceCatalogSearch.trim().toLowerCase();
+    list.innerHTML = catalogueTypes.filter((typeName) => !search || typeName.toLowerCase().includes(search)).map((typeName) => {
+      const present = byType.has(typeName);
+      return `<label class="licence-catalog-row"><div><strong>${typeName}</strong><div class="muted">${present ? 'Present in save' : 'Missing'}</div></div><button data-add-lic-catalog="${typeName}" ${present ? 'disabled' : ''}>Add to Save</button></label>`;
+    }).join('') || '<p>No matching licence types.</p>';
   });
   document.querySelectorAll('button[data-add-lic-catalog]').forEach((button) => button.addEventListener('click', () => {
     const typeName = (button.dataset.addLicCatalog || '').trim();
@@ -380,18 +437,18 @@ function wireEvents() {
     }
     pushPatch({ type: 'SetPlayerName', name: value });
   });
-  document.getElementById('enableModifiedToggle')?.addEventListener('change', (event) => {
-    const select = document.getElementById('modifiedSelect');
-    if (!select) return;
-    select.disabled = !event.target.checked;
-    if (event.target.checked) {
-      pushPatch({ type: 'SetModifiedFlag', value: Number(select.value) === 1 ? 1 : 0 });
-    }
+  document.getElementById('modifiedSlider')?.addEventListener('change', (event) => {
+    pushPatch({ type: 'SetModifiedFlag', value: event.target.checked ? 1 : 0 });
   });
-  document.getElementById('modifiedSelect')?.addEventListener('change', (event) => {
-    if (document.getElementById('enableModifiedToggle')?.checked) {
-      pushPatch({ type: 'SetModifiedFlag', value: Number(event.target.value) === 1 ? 1 : 0 });
-    }
+
+  document.getElementById('skillsSearch')?.addEventListener('input', (event) => { state.filters.skillsSearch = event.target.value; render(); });
+  document.querySelectorAll('tr[data-npc-row]').forEach((row) => row.addEventListener('click', () => { state.ui.selectedNpcId = row.dataset.npcRow; render(); }));
+  document.getElementById('queueNpcSkills')?.addEventListener('click', (event) => {
+    const npcId = event.target.dataset.npcId;
+    if (!npcId) return;
+    const skills = {};
+    document.querySelectorAll('input[data-skill-key]').forEach((input) => { skills[input.dataset.skillKey] = Number(input.value); });
+    pushPatch({ type: 'SetNpcSkills', npcId, skills });
   });
 
   document.getElementById('clearPatches')?.addEventListener('click', resetChanges);

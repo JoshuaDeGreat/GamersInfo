@@ -457,3 +457,68 @@ test('rewriter SetPlayerName and SetModifiedFlag patch only info attributes', as
 
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+test('indexer reads npc skills from attributes and skill nodes fixtures', async () => {
+  const attrsPath = path.join(process.cwd(), 'test/fixtures/skills/npc_component_skills_attributes.xml');
+  const nodesPath = path.join(process.cwd(), 'test/fixtures/skills/npc_component_skill_nodes.xml');
+
+  const attrsModel = await buildIndex(attrsPath);
+  assert.equal(attrsModel.skillsModel.npcsById['[0xAAA]'].name, 'Mina Talis');
+  assert.equal(attrsModel.skillsModel.npcsById['[0xAAA]'].skills.piloting, 6);
+  assert.equal(attrsModel.skillsModel.npcsById['[0xAAA]'].npcseed, '123456');
+
+  const nodesModel = await buildIndex(nodesPath);
+  assert.equal(nodesModel.skillsModel.npcsById['[0xBBB]'].skills.piloting, 7);
+  assert.equal(nodesModel.skillsModel.npcsById['[0xBBB]'].skills.management, 5);
+});
+
+test('indexer links ship/station posts to npc components', async () => {
+  const shipPath = path.join(process.cwd(), 'test/fixtures/skills/ship_with_posts.xml');
+  const stationPath = path.join(process.cwd(), 'test/fixtures/skills/station_with_manager_post.xml');
+  const shipModel = await buildIndex(shipPath);
+  const stationModel = await buildIndex(stationPath);
+
+  assert.equal(shipModel.skillsModel.postsByContainerId['[0xSHIP]'].length, 2);
+  assert.equal(shipModel.skillsModel.npcAssignmentsById['[0xAAA]'][0].postId, 'aipilot');
+  assert.equal(shipModel.skillsModel.containerById['[0xSHIP]'].name, 'Pioneer');
+
+  assert.equal(stationModel.skillsModel.postsByContainerId['[0xSTN]'][0].postId, 'manager');
+  assert.equal(stationModel.skillsModel.npcAssignmentsById['[0xCCC]'][0].containerId, '[0xSTN]');
+});
+
+test('SetNpcSkills updates attributes and node-based skills and is idempotent', async () => {
+  const xml = `<?xml version="1.0"?><savegame><components>
+  <component class="npc" id="[0xAAA]" name="Mina"><traits><skills morale="1" piloting="2"/></traits></component>
+  <component class="npc" id="[0xBBB]" name="Iren"><traits><skill type="piloting" value="3"/></traits></component>
+  </components></savegame>`;
+  const dir = fs.mkdtempSync(path.join(process.cwd(), 'tmp-x4-'));
+  const xmlPath = path.join(dir, 'npc.xml');
+  fs.writeFileSync(xmlPath, xml);
+
+  const out1 = path.join(dir, 'npc-out-1.xml');
+  const out2 = path.join(dir, 'npc-out-2.xml');
+  const patches = [
+    { type: 'SetNpcSkills', npcId: '[0xAAA]', skills: { piloting: 10, engineering: 4 } },
+    { type: 'SetNpcSkills', npcId: '[0xBBB]', skills: { piloting: 8, management: 6 } }
+  ];
+
+  await exportPatchedSave({ sourcePath: xmlPath, outputPath: out1, patches, compress: false, createBackup: false });
+  await exportPatchedSave({ sourcePath: out1, outputPath: out2, patches, compress: false, createBackup: false });
+
+  const first = fs.readFileSync(out1, 'utf8');
+  const second = fs.readFileSync(out2, 'utf8');
+
+  assert.match(first, /id="\[0xAAA\]"[\s\S]*<skills[^>]*piloting="10"[^>]*engineering="4"/);
+  assert.match(first, /id="\[0xBBB\]"[\s\S]*<skill type="piloting" value="8">/);
+  assert.match(first, /id="\[0xBBB\]"[\s\S]*<skill type="management" value="6">/);
+  assert.equal(first, second);
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('streaming implementation has no DOM parser dependency', () => {
+  const indexer = fs.readFileSync(path.join(process.cwd(), 'src/xml-indexer.js'), 'utf8');
+  const rewriter = fs.readFileSync(path.join(process.cwd(), 'src/xml-rewriter.js'), 'utf8');
+  assert.equal(/DOMParser|xmldom|fast-xml-parser/i.test(indexer), false);
+  assert.equal(/DOMParser|xmldom|fast-xml-parser/i.test(rewriter), false);
+});
