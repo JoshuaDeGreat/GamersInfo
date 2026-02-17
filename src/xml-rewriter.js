@@ -26,19 +26,19 @@ function patchNpcComponentXml(componentXml, skillPatch) {
   const traitsXml = traitsMatch[0];
 
   if (/<skills\b/i.test(traitsXml)) {
-    const patchedTraits = traitsXml.replace(/<skills\b([^>]*?)\/?>/i, (full, attrChunk) => {
+    const patchedTraits = traitsXml.replace(/<skills\b([^>]*?)(\/?)>/i, (full, attrChunk, selfClose) => {
       const attrs = {};
       for (const match of attrChunk.matchAll(/([\w:-]+)="([^"]*)"/g)) attrs[match[1]] = match[2];
       for (const [key, value] of Object.entries(skillPatch)) attrs[key] = String(value);
       const serialized = Object.entries(attrs).map(([k, v]) => `${k}="${esc(v)}"`).join(' ');
-      return `<skills${serialized ? ` ${serialized}` : ''}>`;
+      return `<skills${serialized ? ` ${serialized}` : ''}${selfClose ? '/>' : '>'}`;
     });
     return { xml: componentXml.replace(traitsXml, patchedTraits), applied: true, reason: 'skills_attributes' };
   }
 
   if (/<skill\b/i.test(traitsXml)) {
     const updated = { ...skillPatch };
-    let patchedTraits = traitsXml.replace(/<skill\b([^>]*)\/?\s*>/gi, (full, attrChunk) => {
+    let patchedTraits = traitsXml.replace(/<skill\b([^>]*?)(\/?>\s*(?:<\/skill>)?)/gi, (full, attrChunk) => {
       const attrs = {};
       for (const match of attrChunk.matchAll(/([\w:-]+)="([^"]*)"/g)) attrs[match[1]] = match[2];
       const type = String(attrs.type || '').trim();
@@ -47,11 +47,11 @@ function patchNpcComponentXml(componentXml, skillPatch) {
         delete updated[type];
       }
       const serialized = Object.entries(attrs).map(([k, v]) => `${k}="${esc(v)}"`).join(' ');
-      return `<skill ${serialized}>`;
+      return `<skill ${serialized}/>`;
     });
 
     if (Object.keys(updated).length) {
-      const inserts = Object.entries(updated).map(([type, value]) => `<skill type="${esc(type)}" value="${esc(value)}"></skill>`).join('');
+      const inserts = Object.entries(updated).map(([type, value]) => `<skill type="${esc(type)}" value="${esc(value)}"/>`).join('');
       patchedTraits = patchedTraits.replace(/<\/traits>$/i, `${inserts}</traits>`);
     }
 
