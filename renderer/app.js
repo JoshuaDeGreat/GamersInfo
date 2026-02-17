@@ -10,7 +10,7 @@ const state = {
   redo: [],
   dicts: { blueprints: {}, items: {}, factionsById: {}, licenceTypes: [], presets: { modparts: { name: 'Common Mod Parts Pack', items: [] } }, helpText: '' },
   filters: { blueprintSearch: '', blueprintCategory: 'All', itemSearch: '', itemCategory: 'All', inventoryMode: 'set', relationMode: 'hard', skillsSearch: '' },
-  ui: { selectedLicenceFactionId: '', licenceCatalogSearch: '', selectedNpcId: '' },
+  ui: { selectedLicenceFactionId: '', licenceCatalogSearch: '', selectedNpcId: '', selectedShipId: '' },
   exportResult: null
 };
 
@@ -267,35 +267,71 @@ function renderSkills() {
     const hasSkills = Object.keys(selected.skills || {}).length > 0;
     if (!supported) return '<p class="banner">Skills editing disabled: no supported skills structures detected in this save.</p>';
     if (!hasSkills) return '<p class="banner">Skills not present for this NPC in save.</p>';
-    return `<div class="skills-editor-grid">${['morale','piloting','management','engineering','boarding'].map((k) => `<label>${k}<input type="number" min="0" max="20" value="${selected.skills[k] ?? 0}" data-skill-key="${k}"/></label>`).join('')}</div><button id="queueNpcSkills" data-npc-id="${selected.id}">Queue SetNpcSkills</button>`;
+    return `<div class="skills-editor-grid">${['morale','piloting','management','engineering','boarding'].map((k) => `<label>${k}<input type="number" min="0" max="15" value="${selected.skills[k] ?? 0}" data-skill-key="${k}"/></label>`).join('')}</div><button id="queueNpcSkills" data-npc-id="${selected.id}">Queue SetNpcSkills</button>`;
   })();
 
   return `<div class="card"><h3>Skills</h3><input id="skillsSearch" placeholder="Search NPC name" value="${xmlEscape(state.filters.skillsSearch)}"/><table class="table"><thead><tr><th>Name</th><th>NPC ID</th><th>Assigned to</th><th>Morale</th><th>Piloting</th><th>Management</th><th>Engineering</th><th>Boarding</th></tr></thead><tbody>${rowHtml || '<tr><td colspan="8">No NPCs found.</td></tr>'}</tbody></table></div><div class="card"><h3>Editor</h3>${editor}</div>`;
 }
 
+function shipStateFromModelAndPatches() {
+  const baseShips = structuredClone(state.model?.skillsModel?.playerShips || {});
+  for (const patch of state.patches) {
+    if (patch.type === 'SetShipCrewSkills') {
+      const ship = baseShips[patch.shipId];
+      const crew = ship?.crew?.[patch.crewIndex];
+      if (!crew) continue;
+      for (const [key, value] of Object.entries(patch.skills || {})) crew.skills[key] = Number(value);
+    }
+    if (patch.type === 'SetShipModificationValues') {
+      const ship = baseShips[patch.shipId];
+      const mod = ship?.modifications?.[patch.modIndex];
+      if (!mod) continue;
+      for (const [key, value] of Object.entries(patch.values || {})) mod.attrs[key] = String(value);
+    }
+  }
+  return baseShips;
+}
+
 function renderShipsStations() {
   if (!state.model) return '<div class="card">Import a save to view ship/station links.</div>';
-  const skillsModel = state.model.skillsModel || {};
-  const rows = Object.values(skillsModel.containerById || {}).map((container) => {
-    const posts = (skillsModel.postsByContainerId || {})[container.id] || [];
-    const postText = posts.map((post) => {
-      const npc = (skillsModel.npcsById || {})[post.npcId];
-      const roleSkill = post.postId === 'aipilot' ? 'piloting' : post.postId === 'engineer' ? 'engineering' : post.postId === 'manager' ? 'management' : 'morale';
-      return `${post.postId}: ${npc?.name || post.npcId} (${roleSkill} ${npc?.skills?.[roleSkill] ?? '—'})`;
-    }).join('<br/>') || '—';
-    return `<tr><td>${xmlEscape(container.name || container.id)}</td><td>${xmlEscape(container.class || '')}</td><td>${postText}</td></tr>`;
-  }).join('');
-  return `<div class="card"><h3>Ships/Stations Crew Links</h3><table class="table"><thead><tr><th>Container</th><th>Class</th><th>Pilot/Engineer/Manager</th></tr></thead><tbody>${rows || '<tr><td colspan="3">No linked posts found.</td></tr>'}</tbody></table></div>`;
+  const ships = shipStateFromModelAndPatches();
+  const shipRows = Object.values(ships);
+  if (shipRows.length && !state.ui.selectedShipId) state.ui.selectedShipId = shipRows[0].id;
+  const selected = ships[state.ui.selectedShipId] || shipRows[0] || null;
+
+  const list = shipRows.map((ship) => `<tr data-ship-row="${ship.id}" class="${state.ui.selectedShipId === ship.id ? 'active' : ''}"><td>${xmlEscape(ship.name || ship.id)}</td><td>${xmlEscape(ship.class)}</td><td>${xmlEscape(ship.code || '—')}</td></tr>`).join('');
+
+  let details = '<p>Select a player-owned ship.</p>';
+  if (selected) {
+    const crewRows = (selected.crew || []).map((person) => {
+      const skillInputs = ['morale','piloting','management','engineering','boarding'].map((k) => `<label>${k}<input type="number" min="0" max="15" value="${person.skills[k] ?? 0}" data-crew-skill="${k}" data-crew-index="${person.index}"/></label>`).join('');
+      return `<div class="card"><p><strong>#${person.index + 1}</strong> ${xmlEscape(person.role || 'crew')} · ${xmlEscape(person.macro || '')}</p><div class="skills-editor-grid">${skillInputs}</div><button data-queue-crew="${person.index}">Queue Crew Skill Edit</button></div>`;
+    }).join('') || '<p>No crew list found.</p>';
+
+    const modRows = (selected.modifications || []).map((mod) => {
+      const attrs = Object.entries(mod.attrs || {}).map(([k, v]) => {
+        const val = Number(v);
+        const editable = Number.isFinite(val);
+        return `<label>${xmlEscape(k)}<input ${editable ? '' : 'disabled'} type="number" step="0.000001" value="${xmlEscape(v)}" data-mod-key="${xmlEscape(k)}" data-mod-index="${mod.index}"/></label>`;
+      }).join('');
+      return `<div class="card"><p><strong>Modification #${mod.index + 1}</strong> ${xmlEscape(mod.kind || 'entry')}</p><div class="skills-editor-grid">${attrs || '<span class="muted">No editable values</span>'}</div><button data-queue-mod="${mod.index}">Queue Modification Edit</button></div>`;
+    }).join('') || '<p>No modifications found.</p>';
+
+    details = `<div class="card"><h3>${xmlEscape(selected.name || selected.id)}</h3><p>ID: ${xmlEscape(selected.id)} · Macro: ${xmlEscape(selected.macro || '')}</p></div><div class="card"><h3>Crew</h3>${crewRows}</div><div class="card"><h3>Modifications</h3>${modRows}</div>`;
+  }
+
+  return `<div class="card"><h3>Ships/Stations</h3><table class="table"><thead><tr><th>Name</th><th>Class</th><th>Code</th></tr></thead><tbody>${list || '<tr><td colspan="3">No player-owned ships found.</td></tr>'}</tbody></table></div>${details}`;
 }
 
 function groupedPatches() {
-  const groups = { Metadata: [], Credits: [], Relations: [], Blueprints: [], Inventory: [], Licences: [] };
+  const groups = { Metadata: [], Credits: [], Relations: [], Blueprints: [], Inventory: [], Licences: [], Ships: [] };
   for (const patch of state.patches) {
     if (patch.type.includes('PlayerName') || patch.type.includes('ModifiedFlag')) groups.Metadata.push(patch);
     else if (patch.type.includes('Credit')) groups.Credits.push(patch);
     else if (patch.type.includes('Relation')) groups.Relations.push(patch);
     else if (patch.type.includes('Blueprint')) groups.Blueprints.push(patch);
     else if (patch.type.includes('Inventory')) groups.Inventory.push(patch);
+    else if (patch.type.includes('Ship')) groups.Ships.push(patch);
     else groups.Licences.push(patch);
   }
   return groups;
@@ -450,6 +486,24 @@ function wireEvents() {
     document.querySelectorAll('input[data-skill-key]').forEach((input) => { skills[input.dataset.skillKey] = Number(input.value); });
     pushPatch({ type: 'SetNpcSkills', npcId, skills });
   });
+
+  document.querySelectorAll('tr[data-ship-row]').forEach((row) => row.addEventListener('click', () => { state.ui.selectedShipId = row.dataset.shipRow; render(); }));
+  document.querySelectorAll('button[data-queue-crew]').forEach((button) => button.addEventListener('click', () => {
+    const crewIndex = Number(button.dataset.queueCrew);
+    const shipId = state.ui.selectedShipId;
+    if (!shipId || !Number.isInteger(crewIndex)) return;
+    const skills = {};
+    document.querySelectorAll(`input[data-crew-index="${crewIndex}"]`).forEach((input) => { skills[input.dataset.crewSkill] = Number(input.value); });
+    pushPatch({ type: 'SetShipCrewSkills', shipId, crewIndex, skills });
+  }));
+  document.querySelectorAll('button[data-queue-mod]').forEach((button) => button.addEventListener('click', () => {
+    const modIndex = Number(button.dataset.queueMod);
+    const shipId = state.ui.selectedShipId;
+    if (!shipId || !Number.isInteger(modIndex)) return;
+    const values = {};
+    document.querySelectorAll(`input[data-mod-index="${modIndex}"]`).forEach((input) => { if (!input.disabled) values[input.dataset.modKey] = Number(input.value); });
+    pushPatch({ type: 'SetShipModificationValues', shipId, modIndex, values });
+  }));
 
   document.getElementById('clearPatches')?.addEventListener('click', resetChanges);
 

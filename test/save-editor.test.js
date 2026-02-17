@@ -517,6 +517,62 @@ test('SetNpcSkills updates attributes and node-based skills and is idempotent', 
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
+
+
+test('indexer lists player-owned ships with crew and modifications', async () => {
+  const xml = `<?xml version="1.0"?><savegame><components>
+  <component class="ship_l" id="[0xSHIP]" name="1MY Hyperion" owner="player" code="YFT-260" macro="ship_par_l_expeditionary_01_a_macro">
+    <modification><engine ware="mod_engine_rotationthrust_01_mk3" forwardthrust="1.08522"/></modification>
+    <people>
+      <person role="service" macro="crew_macro"><skills engineering="5" morale="7" piloting="2"/></person>
+    </people>
+  </component>
+  </components></savegame>`;
+  const dir = fs.mkdtempSync(path.join(process.cwd(), 'tmp-x4-'));
+  const xmlPath = path.join(dir, 'ship.xml');
+  fs.writeFileSync(xmlPath, xml);
+
+  const model = await buildIndex(xmlPath);
+  const ship = model.skillsModel.playerShips['[0xSHIP]'];
+  assert.equal(ship.name, '1MY Hyperion');
+  assert.equal(ship.crew[0].skills.engineering, 5);
+  assert.equal(ship.modifications[1].kind, 'engine');
+  assert.equal(ship.modifications[1].attrs.forwardthrust, '1.08522');
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('SetShipCrewSkills and SetShipModificationValues edit selected ship values', async () => {
+  const xml = `<?xml version="1.0"?><savegame><components>
+  <component class="ship_l" id="[0xSHIP]" name="1MY Hyperion" owner="player">
+    <modification><engine ware="mod_engine_rotationthrust_01_mk3" forwardthrust="1.08522" rotationthrust="1.4844"/></modification>
+    <people>
+      <person role="service"><skills engineering="5" morale="7" piloting="2"/></person>
+    </people>
+  </component>
+  </components></savegame>`;
+  const dir = fs.mkdtempSync(path.join(process.cwd(), 'tmp-x4-'));
+  const xmlPath = path.join(dir, 'ship-patch.xml');
+  fs.writeFileSync(xmlPath, xml);
+  const outputPath = path.join(dir, 'ship-patch-out.xml');
+
+  await exportPatchedSave({
+    sourcePath: xmlPath,
+    outputPath,
+    patches: [
+      { type: 'SetShipCrewSkills', shipId: '[0xSHIP]', crewIndex: 0, skills: { engineering: 15, morale: 12 } },
+      { type: 'SetShipModificationValues', shipId: '[0xSHIP]', modIndex: 0, values: { forwardthrust: 1.25 } }
+    ],
+    compress: false,
+    createBackup: false
+  });
+
+  const edited = fs.readFileSync(outputPath, 'utf8');
+  assert.match(edited, /<skills[^>]*engineering="15"[^>]*morale="12"/);
+  assert.match(edited, /<modification[^>]*forwardthrust="1.25"/);
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
 test('streaming implementation has no DOM parser dependency', () => {
   const indexer = fs.readFileSync(path.join(process.cwd(), 'src/xml-indexer.js'), 'utf8');
   const rewriter = fs.readFileSync(path.join(process.cwd(), 'src/xml-rewriter.js'), 'utf8');
