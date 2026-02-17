@@ -54,7 +54,8 @@ async function buildIndex(filePath) {
         supportedSkillKeys: [],
         hasSkillsAttributes: false,
         hasSkillNodes: false,
-        npcAssignmentsById: {}
+        npcAssignmentsById: {},
+        playerShips: {}
       }
     };
 
@@ -74,6 +75,8 @@ async function buildIndex(filePath) {
     const componentStack = [];
     let currentNpcId = null;
     let inNpcTraits = false;
+    let playerShipStack = [];
+    let currentShipPersonIndex = -1;
 
     function parseIntMaybe(value) {
       const num = Number(value);
@@ -231,6 +234,22 @@ async function buildIndex(filePath) {
             bestEffortLocation: componentInfo.location || ''
           };
         }
+
+        if (Boolean(componentId) && className.includes('ship') && componentInfo.owner === 'player') {
+          if (!model.skillsModel.playerShips[componentId]) {
+            model.skillsModel.playerShips[componentId] = {
+              id: componentId,
+              class: className,
+              macro: componentInfo.macro || '',
+              code: componentInfo.code || '',
+              owner: componentInfo.owner || '',
+              name: componentInfo.name || componentId,
+              crew: [],
+              modifications: []
+            };
+          }
+          playerShipStack.push(componentId);
+        }
       }
 
       const activeComponent = componentStack[componentStack.length - 1];
@@ -257,6 +276,43 @@ async function buildIndex(filePath) {
           detectedSkillKeys.add(type);
           model.skillsModel.hasSkillNodes = true;
         }
+      }
+
+      const currentShipId = playerShipStack[playerShipStack.length - 1];
+      if (name === 'person' && currentShipId && stack.includes('people')) {
+        const ship = model.skillsModel.playerShips[currentShipId];
+        currentShipPersonIndex = ship.crew.length;
+        ship.crew.push({
+          index: currentShipPersonIndex,
+          role: String(attrs.role ?? ''),
+          macro: String(attrs.macro ?? ''),
+          skills: {}
+        });
+      }
+      if (name === 'skills' && currentShipId && stack.includes('people') && currentShipPersonIndex >= 0) {
+        const ship = model.skillsModel.playerShips[currentShipId];
+        const crew = ship.crew[currentShipPersonIndex];
+        for (const key of knownSkillKeys) {
+          if (attrs[key] !== undefined) {
+            const parsed = parseIntMaybe(attrs[key]);
+            if (parsed !== null) crew.skills[key] = parsed;
+          }
+        }
+      }
+      if (name === 'modification' && currentShipId) {
+        const ship = model.skillsModel.playerShips[currentShipId];
+        ship.modifications.push({
+          index: ship.modifications.length,
+          attrs: Object.fromEntries(Object.entries(attrs).map(([k, v]) => [k, String(v)]))
+        });
+      }
+      if ((name === 'engine' || name === 'ship' || name === 'paint' || name === 'weapon') && currentShipId && stack.includes('modification')) {
+        const ship = model.skillsModel.playerShips[currentShipId];
+        ship.modifications.push({
+          index: ship.modifications.length,
+          kind: name,
+          attrs: Object.fromEntries(Object.entries(attrs).map(([k, v]) => [k, String(v)]))
+        });
       }
 
       if (name === 'post' && activeComponent?.isContainer && stack.includes('control')) {
@@ -308,9 +364,11 @@ async function buildIndex(filePath) {
         inPlayerComponent = false;
         playerComponentDepth = -1;
       }
+      if (name === 'person') currentShipPersonIndex = -1;
       if (name === 'component') {
         const popped = componentStack.pop();
         if (popped?.isNpc) currentNpcId = null;
+        if (popped && popped.id && model.skillsModel.playerShips[popped.id]) playerShipStack.pop();
       }
       if (name === 'faction') {
         currentFactionId = null;

@@ -105,6 +105,27 @@ function validatePatch(patch) {
       }
       break;
     }
+    case 'SetShipCrewSkills': {
+      if (typeof patch.shipId !== 'string' || !patch.shipId.trim()) throw new Error('SetShipCrewSkills.shipId must be non-empty');
+      if (!Number.isInteger(patch.crewIndex) || patch.crewIndex < 0) throw new Error('SetShipCrewSkills.crewIndex must be integer >= 0');
+      if (!patch.skills || typeof patch.skills !== 'object') throw new Error('SetShipCrewSkills.skills must be an object');
+      const allowed = new Set(['morale', 'piloting', 'management', 'engineering', 'boarding']);
+      for (const [key, value] of Object.entries(patch.skills)) {
+        if (!allowed.has(key)) throw new Error(`SetShipCrewSkills.skills has unsupported key: ${key}`);
+        if (!Number.isFinite(Number(value))) throw new Error(`SetShipCrewSkills.skills.${key} must be numeric`);
+      }
+      break;
+    }
+    case 'SetShipModificationValues': {
+      if (typeof patch.shipId !== 'string' || !patch.shipId.trim()) throw new Error('SetShipModificationValues.shipId must be non-empty');
+      if (!Number.isInteger(patch.modIndex) || patch.modIndex < 0) throw new Error('SetShipModificationValues.modIndex must be integer >= 0');
+      if (!patch.values || typeof patch.values !== 'object') throw new Error('SetShipModificationValues.values must be an object');
+      for (const [key, value] of Object.entries(patch.values)) {
+        if (!/^[a-zA-Z][\w:-]*$/.test(key)) throw new Error(`SetShipModificationValues.values invalid key: ${key}`);
+        if (!Number.isFinite(Number(value))) throw new Error(`SetShipModificationValues.values.${key} must be numeric`);
+      }
+      break;
+    }
     default:
       throw new Error(`Unsupported patch type: ${patch.type}`);
   }
@@ -124,7 +145,9 @@ function normalizePatchList(patches = []) {
     inventoryOps: new Map(),
     setPlayerName: null,
     setModifiedFlag: null,
-    npcSkillOps: new Map()
+    npcSkillOps: new Map(),
+    shipCrewSkillOps: new Map(),
+    shipModificationOps: new Map()
   };
 
   for (const patch of patches) {
@@ -185,8 +208,29 @@ function normalizePatchList(patches = []) {
         if (!normalized.npcSkillOps.has(npcId)) normalized.npcSkillOps.set(npcId, {});
         const current = normalized.npcSkillOps.get(npcId);
         for (const [key, value] of Object.entries(patch.skills)) {
-          // Conservative clamp: fixtures show small integer skill values; we cap to 0..20 for safety.
-          current[key] = clamp(Math.trunc(Number(value)), 0, 20);
+          current[key] = clamp(Math.trunc(Number(value)), 0, 15);
+        }
+        break;
+      }
+      case 'SetShipCrewSkills': {
+        const shipId = patch.shipId.trim();
+        if (!normalized.shipCrewSkillOps.has(shipId)) normalized.shipCrewSkillOps.set(shipId, new Map());
+        const byIndex = normalized.shipCrewSkillOps.get(shipId);
+        if (!byIndex.has(patch.crewIndex)) byIndex.set(patch.crewIndex, {});
+        const current = byIndex.get(patch.crewIndex);
+        for (const [key, value] of Object.entries(patch.skills)) {
+          current[key] = clamp(Math.trunc(Number(value)), 0, 15);
+        }
+        break;
+      }
+      case 'SetShipModificationValues': {
+        const shipId = patch.shipId.trim();
+        if (!normalized.shipModificationOps.has(shipId)) normalized.shipModificationOps.set(shipId, new Map());
+        const byIndex = normalized.shipModificationOps.get(shipId);
+        if (!byIndex.has(patch.modIndex)) byIndex.set(patch.modIndex, {});
+        const current = byIndex.get(patch.modIndex);
+        for (const [key, value] of Object.entries(patch.values)) {
+          current[key] = Number(value);
         }
         break;
       }

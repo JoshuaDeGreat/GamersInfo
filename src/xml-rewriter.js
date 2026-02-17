@@ -7,6 +7,7 @@ const { buildIndex } = require('./xml-indexer');
 const esc = (v) => String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
 const escText = (v) => String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;');
 const SKILL_KEYS = ['morale', 'piloting', 'management', 'engineering', 'boarding'];
+const escapeRegExp = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 function hasLicencePatches(normalized) {
   return normalized.licenceOps.addFactionsByType.size > 0
@@ -61,6 +62,49 @@ function patchNpcComponentXml(componentXml, skillPatch) {
   return { xml: componentXml, applied: false, reason: 'unknown_traits_structure' };
 }
 
+
+function patchShipComponentXml(componentXml, crewPatchesByIndex, modPatchesByIndex) {
+  let xml = componentXml;
+  let crewUpdated = 0;
+  let modUpdated = 0;
+
+  const peopleMatches = Array.from(xml.matchAll(/<person\b[^>]*>[\s\S]*?<\/person>/gi));
+  for (const [crewIndex, skills] of (crewPatchesByIndex?.entries?.() || [])) {
+    const match = peopleMatches[crewIndex];
+    if (!match) continue;
+    const personXml = match[0];
+    const patchedPerson = personXml.replace(/<skills\b([^>]*?)(\/?)>/i, (full, attrChunk, selfClose) => {
+      const attrs = {};
+      for (const m of String(attrChunk || '').matchAll(/([\w:-]+)="([^"]*)"/g)) attrs[m[1]] = m[2];
+      for (const [k, v] of Object.entries(skills || {})) attrs[k] = String(v);
+      const serialized = Object.entries(attrs).map(([k, v]) => `${k}="${esc(v)}"`).join(' ');
+      return `<skills${serialized ? ` ${serialized}` : ''}${selfClose ? '/>' : '>'}`;
+    });
+    if (patchedPerson !== personXml) {
+      xml = xml.replace(personXml, patchedPerson);
+      crewUpdated += 1;
+    }
+  }
+
+  const modTagMatches = Array.from(xml.matchAll(/<(modification|engine|ship|weapon|paint)\b([^>]*)>/gi));
+  for (const [modIndex, values] of (modPatchesByIndex?.entries?.() || [])) {
+    const match = modTagMatches[modIndex];
+    if (!match) continue;
+    const fullTag = match[0];
+    const tagName = match[1];
+    const attrChunk = match[2] || '';
+    const attrs = {};
+    for (const m of String(attrChunk).matchAll(/([\w:-]+)="([^"]*)"/g)) attrs[m[1]] = m[2];
+    for (const [k, v] of Object.entries(values || {})) attrs[k] = String(v);
+    const serialized = Object.entries(attrs).map(([k, v]) => `${k}="${esc(v)}"`).join(' ');
+    const replacement = `<${tagName}${serialized ? ` ${serialized}` : ''}>`;
+    xml = xml.replace(fullTag, replacement);
+    modUpdated += 1;
+  }
+
+  return { xml, crewUpdated, modUpdated };
+}
+
 async function exportPatchedSave({ sourcePath, outputPath, patches, compress = true, createBackup = true }) {
   patches.forEach(validatePatch);
   const normalized = normalizePatchList(patches);
@@ -87,7 +131,9 @@ async function exportPatchedSave({ sourcePath, outputPath, patches, compress = t
     playerNamesUpdated: 0,
     modifiedFlagsUpdated: 0,
     npcSkillsUpdated: 0,
-    npcSkillsSkippedNoTraits: 0
+    npcSkillsSkippedNoTraits: 0,
+    shipCrewSkillsUpdated: 0,
+    shipModificationValuesUpdated: 0
   };
 
   await new Promise((resolve, reject) => {
@@ -122,9 +168,11 @@ async function exportPatchedSave({ sourcePath, outputPath, patches, compress = t
 
     let inInfo = false;
     let npcCapture = null;
+    let shipCapture = null;
 
     function emit(text) {
       if (npcCapture) npcCapture.parts.push(text);
+      else if (shipCapture) shipCapture.parts.push(text);
       else if (!skipStack.length) output.write(text);
     }
 
@@ -144,6 +192,10 @@ async function exportPatchedSave({ sourcePath, outputPath, patches, compress = t
         emit(serializeOpenTag(node.name, attrs));
         return;
       }
+      if (shipCapture) {
+        emit(serializeOpenTag(node.name, attrs));
+        return;
+      }
 
       if (skipStack.length) {
         skipStack.push(n);
@@ -152,6 +204,10 @@ async function exportPatchedSave({ sourcePath, outputPath, patches, compress = t
 
       if (n === 'component' && attrs.class === 'npc' && attrs.id && normalized.npcSkillOps.has(String(attrs.id))) {
         npcCapture = { depth: stack.length, npcId: String(attrs.id), parts: [serializeOpenTag(node.name, attrs)] };
+        return;
+      }
+      if (n === 'component' && attrs.id && (normalized.shipCrewSkillOps.has(String(attrs.id)) || normalized.shipModificationOps.has(String(attrs.id)))) {
+        shipCapture = { depth: stack.length, shipId: String(attrs.id), parts: [serializeOpenTag(node.name, attrs)] };
         return;
       }
 
@@ -297,6 +353,18 @@ async function exportPatchedSave({ sourcePath, outputPath, patches, compress = t
         return;
       }
 
+      if (shipCapture) {
+        shipCapture.parts.push(`</${name}>`);
+        if (n === 'component' && stack.length < shipCapture.depth) {
+          const crewPatch = normalized.shipCrewSkillOps.get(shipCapture.shipId) || new Map();
+          const modPatch = normalized.shipModificationOps.get(shipCapture.shipId) || new Map();
+          const patched = patchShipComponentXml(shipCapture.parts.join(''), crewPatch, modPatch);
+          output.write(patched.xml);
+          shipCapture = null;
+        }
+        return;
+      }
+
       if (skipStack.length) {
         const skipped = skipStack.pop();
         if (skipped !== n) reject(new Error('Internal skip stack mismatch'));
@@ -424,6 +492,22 @@ async function exportPatchedSave({ sourcePath, outputPath, patches, compress = t
   });
 
   await fs.rename(tmp, outputPath);
+
+  if (normalized.shipCrewSkillOps.size || normalized.shipModificationOps.size) {
+    let rewritten = await fs.readFile(outputPath, 'utf8');
+    for (const shipId of new Set([...normalized.shipCrewSkillOps.keys(), ...normalized.shipModificationOps.keys()])) {
+      const crewPatch = normalized.shipCrewSkillOps.get(shipId) || new Map();
+      const modPatch = normalized.shipModificationOps.get(shipId) || new Map();
+      const re = new RegExp(`<component\\b[^>]*id="${escapeRegExp(shipId)}"[^>]*>[\\s\\S]*?<\\/component>`, 'i');
+      const m = rewritten.match(re);
+      if (!m) continue;
+      const patched = patchShipComponentXml(m[0], crewPatch, modPatch);
+      stats.shipCrewSkillsUpdated += patched.crewUpdated;
+      stats.shipModificationValuesUpdated += patched.modUpdated;
+      rewritten = rewritten.replace(m[0], patched.xml);
+    }
+    await fs.writeFile(outputPath, rewritten, 'utf8');
+  }
 
   return {
     outputPath,
