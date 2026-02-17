@@ -9,8 +9,8 @@ const state = {
   undo: [],
   redo: [],
   dicts: { blueprints: {}, items: {}, factionsById: {}, licenceTypes: [], presets: { modparts: { name: 'Common Mod Parts Pack', items: [] } }, helpText: '' },
-  filters: { blueprintSearch: '', blueprintCategory: 'All', itemSearch: '', itemCategory: 'All', inventoryMode: 'set', relationMode: 'hard', skillsSearch: '' },
-  ui: { selectedLicenceFactionId: '', licenceCatalogSearch: '', selectedNpcId: '', selectedShipId: '' },
+  filters: { blueprintSearch: '', blueprintCategory: 'All', itemSearch: '', itemCategory: 'All', inventoryMode: 'set', relationMode: 'hard', skillsSearch: '', shipSearch: '', shipClass: 'all', shipOwner: 'all' },
+  ui: { selectedLicenceFactionId: '', licenceCatalogSearch: '', selectedNpcId: '', selectedShipId: '', shipTab: 'my', shipPage: 1 },
   exportResult: null
 };
 
@@ -273,54 +273,75 @@ function renderSkills() {
   return `<div class="card"><h3>Skills</h3><input id="skillsSearch" placeholder="Search NPC name" value="${xmlEscape(state.filters.skillsSearch)}"/><table class="table"><thead><tr><th>Name</th><th>NPC ID</th><th>Assigned to</th><th>Morale</th><th>Piloting</th><th>Management</th><th>Engineering</th><th>Boarding</th></tr></thead><tbody>${rowHtml || '<tr><td colspan="8">No NPCs found.</td></tr>'}</tbody></table></div><div class="card"><h3>Editor</h3>${editor}</div>`;
 }
 
+
+function skillStars(value) {
+  const normalized = Math.max(0, Math.min(15, Number(value) || 0));
+  const stars = normalized / 3;
+  let html = '';
+  for (let i = 1; i <= 5; i += 1) {
+    if (stars >= i) html += '★';
+    else if (stars >= i - 0.5) html += '⯪';
+    else html += '☆';
+  }
+  return `<span class="skill-stars">${html}</span>`;
+}
+
 function shipStateFromModelAndPatches() {
-  const baseShips = structuredClone(state.model?.skillsModel?.playerShips || {});
+  const baseShips = structuredClone(state.model?.shipsModel?.allShipsById || {});
   for (const patch of state.patches) {
-    if (patch.type === 'SetShipCrewSkills') {
+    if (patch.type === 'SetShipCrewSkills' || patch.type === 'SetCrewSkills') {
       const ship = baseShips[patch.shipId];
-      const crew = ship?.crew?.[patch.crewIndex];
+      const idx = patch.personIndex ?? patch.crewIndex;
+      const crew = ship?.crew?.[idx];
       if (!crew) continue;
       for (const [key, value] of Object.entries(patch.skills || {})) crew.skills[key] = Number(value);
     }
-    if (patch.type === 'SetShipModificationValues') {
-      const ship = baseShips[patch.shipId];
-      const mod = ship?.modifications?.[patch.modIndex];
-      if (!mod) continue;
-      for (const [key, value] of Object.entries(patch.values || {})) mod.attrs[key] = String(value);
+    if (patch.type === 'ChangeOwner') {
+      if (baseShips[patch.objectId]) baseShips[patch.objectId].owner = patch.newOwnerFactionId;
+    }
+    if (patch.type === 'SetShipName' && baseShips[patch.shipId]) baseShips[patch.shipId].name = patch.name;
+    if (patch.type === 'SetShipCode' && baseShips[patch.shipId]) baseShips[patch.shipId].code = patch.code;
+    if (patch.type === 'SetOfficerSkills') {
+      for (const ship of Object.values(baseShips)) {
+        const officer = (ship.officers || []).find((o) => o.id === patch.officerComponentId);
+        if (officer) for (const [key, value] of Object.entries(patch.skills || {})) officer.skills[key] = Number(value);
+      }
     }
   }
   return baseShips;
 }
 
 function renderShipsStations() {
-  if (!state.model) return '<div class="card">Import a save to view ship/station links.</div>';
-  const ships = shipStateFromModelAndPatches();
-  const shipRows = Object.values(ships);
-  if (shipRows.length && !state.ui.selectedShipId) state.ui.selectedShipId = shipRows[0].id;
-  const selected = ships[state.ui.selectedShipId] || shipRows[0] || null;
+  if (!state.model) return '<div class="card">Import a save to view ships.</div>';
+  const shipsById = shipStateFromModelAndPatches();
+  const all = Object.values(shipsById);
+  const isMy = state.ui.shipTab !== 'all';
+  let rows = all.filter((s) => !isMy || s.owner === 'player');
+  const search = state.filters.shipSearch.trim().toLowerCase();
+  if (search) rows = rows.filter((s) => [s.name, s.code, s.macro, s.id].join(' ').toLowerCase().includes(search));
+  if (state.filters.shipClass !== 'all') rows = rows.filter((s) => s.class === state.filters.shipClass);
+  if (!isMy && state.filters.shipOwner !== 'all') rows = rows.filter((s) => s.owner === state.filters.shipOwner);
 
-  const list = shipRows.map((ship) => `<tr data-ship-row="${ship.id}" class="${state.ui.selectedShipId === ship.id ? 'active' : ''}"><td>${xmlEscape(ship.name || ship.id)}</td><td>${xmlEscape(ship.class)}</td><td>${xmlEscape(ship.code || '—')}</td></tr>`).join('');
+  const pageSize = 100;
+  const pages = Math.max(1, Math.ceil(rows.length / pageSize));
+  state.ui.shipPage = Math.min(state.ui.shipPage, pages);
+  const start = (state.ui.shipPage - 1) * pageSize;
+  const pageRows = rows.slice(start, start + pageSize);
+  if (pageRows.length && !shipsById[state.ui.selectedShipId]) state.ui.selectedShipId = pageRows[0].id;
+  const selected = shipsById[state.ui.selectedShipId] || pageRows[0] || null;
 
-  let details = '<p>Select a player-owned ship.</p>';
+  const list = pageRows.map((ship) => `<tr data-ship-row="${ship.id}" class="${state.ui.selectedShipId === ship.id ? 'active' : ''}"><td>${xmlEscape(ship.name || ship.id)}</td><td>${xmlEscape(ship.class)}</td><td>${xmlEscape(ship.owner || '—')}</td><td>${xmlEscape(ship.code || '—')}</td><td>${ship.docked ? 'Yes' : 'No'}</td></tr>`).join('');
+  const classes = ['all', ...new Set(all.map((s) => s.class).filter(Boolean))];
+  const owners = ['all', ...new Set(all.map((s) => s.owner).filter(Boolean))];
+
+  let details = '<p>Select a ship.</p>';
   if (selected) {
-    const crewRows = (selected.crew || []).map((person) => {
-      const skillInputs = ['morale','piloting','management','engineering','boarding'].map((k) => `<label>${k}<input type="number" min="0" max="15" value="${person.skills[k] ?? 0}" data-crew-skill="${k}" data-crew-index="${person.index}"/></label>`).join('');
-      return `<div class="card"><p><strong>#${person.index + 1}</strong> ${xmlEscape(person.role || 'crew')} · ${xmlEscape(person.macro || '')}</p><div class="skills-editor-grid">${skillInputs}</div><button data-queue-crew="${person.index}">Queue Crew Skill Edit</button></div>`;
-    }).join('') || '<p>No crew list found.</p>';
-
-    const modRows = (selected.modifications || []).map((mod) => {
-      const attrs = Object.entries(mod.attrs || {}).map(([k, v]) => {
-        const val = Number(v);
-        const editable = Number.isFinite(val);
-        return `<label>${xmlEscape(k)}<input ${editable ? '' : 'disabled'} type="number" step="0.000001" value="${xmlEscape(v)}" data-mod-key="${xmlEscape(k)}" data-mod-index="${mod.index}"/></label>`;
-      }).join('');
-      return `<div class="card"><p><strong>Modification #${mod.index + 1}</strong> ${xmlEscape(mod.kind || 'entry')}</p><div class="skills-editor-grid">${attrs || '<span class="muted">No editable values</span>'}</div><button data-queue-mod="${mod.index}">Queue Modification Edit</button></div>`;
-    }).join('') || '<p>No modifications found.</p>';
-
-    details = `<div class="card"><h3>${xmlEscape(selected.name || selected.id)}</h3><p>ID: ${xmlEscape(selected.id)} · Macro: ${xmlEscape(selected.macro || '')}</p></div><div class="card"><h3>Crew</h3>${crewRows}</div><div class="card"><h3>Modifications</h3>${modRows}</div>`;
+    const officers = (selected.officers || []).map((o) => `<div class="card"><p>${xmlEscape(o.name || '(unnamed)')} · ${xmlEscape(o.post || o.class || 'officer')} · ${xmlEscape(o.id)}</p>${['morale','piloting','management','engineering','boarding'].map((k) => `<label>${k} ${skillStars(o.skills?.[k])}<input type="number" min="0" max="15" value="${o.skills?.[k] ?? 0}" data-officer-skill="${k}" data-officer-id="${o.id}"/></label>`).join('')}<button data-queue-officer="${o.id}">Queue Officer Skills</button></div>`).join('') || '<p>No officers indexed.</p>';
+    const crewRows = (selected.crew || []).map((person) => `<div class="card"><p><strong>#${person.index + 1}</strong> ${xmlEscape(person.role || 'crew')}</p>${['morale','piloting','management','engineering','boarding'].map((k) => `<label>${k} ${skillStars(person.skills?.[k])}<input type="number" min="0" max="15" value="${person.skills?.[k] ?? 0}" data-crew-skill="${k}" data-crew-index="${person.index}"/></label>`).join('')}<button data-queue-crew="${person.index}">Queue Crew Skill Edit</button></div>`).join('') || '<p>No crew list found.</p>';
+    details = `<div class="card"><h3>${xmlEscape(selected.name || selected.id)}</h3><p>ID: ${xmlEscape(selected.id)} · Class: ${xmlEscape(selected.class)} · Owner: ${xmlEscape(selected.owner || '')}</p><p>Code: ${xmlEscape(selected.code || '—')} · Macro: ${xmlEscape(selected.macro || '—')}</p><p>Location: ${xmlEscape(selected.location?.spaceId || '—')} (${xmlEscape(selected.location?.x || '—')}, ${xmlEscape(selected.location?.y || '—')}, ${xmlEscape(selected.location?.z || '—')})</p>${!isMy ? `<label>Change owner <input id="shipOwnerInput" value="${xmlEscape(selected.owner || '')}"/></label><button id="queueOwnerChange" data-ship-id="${selected.id}">Queue Owner</button>` : ''}<label>Rename <input id="shipNameInput" value="${xmlEscape(selected.name || '')}"/></label><button id="queueShipName" data-ship-id="${selected.id}">Queue Name</button><label>Code <input id="shipCodeInput" value="${xmlEscape(selected.code || '')}"/></label><button id="queueShipCode" data-ship-id="${selected.id}">Queue Code</button></div><div class="card"><h3>Officers</h3>${officers}</div><div class="card"><h3>Crew</h3>${crewRows}</div>`;
   }
 
-  return `<div class="card"><h3>Ships/Stations</h3><table class="table"><thead><tr><th>Name</th><th>Class</th><th>Code</th></tr></thead><tbody>${list || '<tr><td colspan="3">No player-owned ships found.</td></tr>'}</tbody></table></div>${details}`;
+  return `<div class="card sticky-toolbar"><button data-ship-tab="my" class="${isMy ? 'active' : ''}">My Ships</button><button data-ship-tab="all" class="${!isMy ? 'active' : ''}">All Ships (Advanced)</button>${!isMy ? '<span class="banner">⚠ Changing owner can break missions and scripts.</span>' : ''}<input id="shipSearch" placeholder="Search name/code/macro/id" value="${xmlEscape(state.filters.shipSearch)}"/><select id="shipClass">${classes.map((c) => `<option value="${xmlEscape(c)}" ${state.filters.shipClass === c ? 'selected' : ''}>${xmlEscape(c)}</option>`).join('')}</select>${!isMy ? `<select id="shipOwner">${owners.map((o) => `<option value="${xmlEscape(o)}" ${state.filters.shipOwner === o ? 'selected' : ''}>${xmlEscape(o)}</option>`).join('')}</select>` : ''}<button data-ship-page="prev">Prev</button><span>Page ${state.ui.shipPage}/${pages}</span><button data-ship-page="next">Next</button></div><div class="card"><table class="table"><thead><tr><th>Name</th><th>Class</th><th>Owner</th><th>Code</th><th>Docked</th></tr></thead><tbody>${list || '<tr><td colspan="5">No ships found.</td></tr>'}</tbody></table></div>${details}`;
 }
 
 function groupedPatches() {
@@ -487,23 +508,33 @@ function wireEvents() {
     pushPatch({ type: 'SetNpcSkills', npcId, skills });
   });
 
-  document.querySelectorAll('tr[data-ship-row]').forEach((row) => row.addEventListener('click', () => { state.ui.selectedShipId = row.dataset.shipRow; render(); }));
-  document.querySelectorAll('button[data-queue-crew]').forEach((button) => button.addEventListener('click', () => {
-    const crewIndex = Number(button.dataset.queueCrew);
-    const shipId = state.ui.selectedShipId;
-    if (!shipId || !Number.isInteger(crewIndex)) return;
-    const skills = {};
-    document.querySelectorAll(`input[data-crew-index="${crewIndex}"]`).forEach((input) => { skills[input.dataset.crewSkill] = Number(input.value); });
-    pushPatch({ type: 'SetShipCrewSkills', shipId, crewIndex, skills });
-  }));
-  document.querySelectorAll('button[data-queue-mod]').forEach((button) => button.addEventListener('click', () => {
-    const modIndex = Number(button.dataset.queueMod);
-    const shipId = state.ui.selectedShipId;
-    if (!shipId || !Number.isInteger(modIndex)) return;
-    const values = {};
-    document.querySelectorAll(`input[data-mod-index="${modIndex}"]`).forEach((input) => { if (!input.disabled) values[input.dataset.modKey] = Number(input.value); });
-    pushPatch({ type: 'SetShipModificationValues', shipId, modIndex, values });
-  }));
+  document.getElementById('main')?.addEventListener('click', (event) => {
+    const shipRow = event.target.closest('tr[data-ship-row]');
+    if (shipRow) { state.ui.selectedShipId = shipRow.dataset.shipRow; render(); return; }
+    const shipTab = event.target.closest('[data-ship-tab]');
+    if (shipTab) { state.ui.shipTab = shipTab.dataset.shipTab; state.ui.shipPage = 1; render(); return; }
+    const shipPage = event.target.closest('[data-ship-page]');
+    if (shipPage) { state.ui.shipPage = Math.max(1, state.ui.shipPage + (shipPage.dataset.shipPage === 'next' ? 1 : -1)); render(); return; }
+    const crewBtn = event.target.closest('button[data-queue-crew]');
+    if (crewBtn) {
+      const crewIndex = Number(crewBtn.dataset.queueCrew); const shipId = state.ui.selectedShipId; if (!shipId || !Number.isInteger(crewIndex)) return;
+      const skills = {}; document.querySelectorAll(`input[data-crew-index="${crewIndex}"]`).forEach((input) => { skills[input.dataset.crewSkill] = Number(input.value); });
+      pushPatch({ type: 'SetCrewSkills', shipId, personIndex: crewIndex, skills }); return;
+    }
+    const officerBtn = event.target.closest('button[data-queue-officer]');
+    if (officerBtn) {
+      const officerComponentId = officerBtn.dataset.queueOfficer; const skills = {};
+      document.querySelectorAll(`input[data-officer-id="${officerComponentId}"]`).forEach((input) => { skills[input.dataset.officerSkill] = Number(input.value); });
+      pushPatch({ type: 'SetOfficerSkills', officerComponentId, skills }); return;
+    }
+    if (event.target.id === 'queueOwnerChange') { pushPatch({ type: 'ChangeOwner', objectId: event.target.dataset.shipId, newOwnerFactionId: document.getElementById('shipOwnerInput').value.trim() }); return; }
+    if (event.target.id === 'queueShipName') { pushPatch({ type: 'SetShipName', shipId: event.target.dataset.shipId, name: document.getElementById('shipNameInput').value }); return; }
+    if (event.target.id === 'queueShipCode') { pushPatch({ type: 'SetShipCode', shipId: event.target.dataset.shipId, code: document.getElementById('shipCodeInput').value }); return; }
+  });
+
+  document.getElementById('shipSearch')?.addEventListener('input', (event) => { state.filters.shipSearch = event.target.value; state.ui.shipPage = 1; render(); });
+  document.getElementById('shipClass')?.addEventListener('change', (event) => { state.filters.shipClass = event.target.value; state.ui.shipPage = 1; render(); });
+  document.getElementById('shipOwner')?.addEventListener('change', (event) => { state.filters.shipOwner = event.target.value; state.ui.shipPage = 1; render(); });
 
   document.getElementById('clearPatches')?.addEventListener('click', resetChanges);
 

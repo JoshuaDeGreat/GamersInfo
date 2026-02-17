@@ -510,7 +510,7 @@ test('SetNpcSkills updates attributes and node-based skills and is idempotent', 
 
   assert.match(first, /id="\[0xAAA\]"[\s\S]*<skills[^>]*piloting="10"[^>]*engineering="4"/);
   assert.match(first, /id="\[0xBBB\]"[\s\S]*<skill type="piloting" value="8"(?:\/>|><\/skill>)/);
-  assert.match(first, /id="\[0xBBB\]"[\s\S]*<skill type="management" value="6"\/>/);
+  assert.match(first, /id="\[0xBBB\]"[\s\S]*<skill type="management" value="6"(?:\/|><\/skill)>/);
   await parseXmlString(first);
   assert.equal(first, second);
 
@@ -578,4 +578,47 @@ test('streaming implementation has no DOM parser dependency', () => {
   const rewriter = fs.readFileSync(path.join(process.cwd(), 'src/xml-rewriter.js'), 'utf8');
   assert.equal(/DOMParser|xmldom|fast-xml-parser/i.test(indexer), false);
   assert.equal(/DOMParser|xmldom|fast-xml-parser/i.test(rewriter), false);
+});
+
+test('indexes all ships including docked and officers', async () => {
+  const xml = `<?xml version="1.0"?><savegame><components><component class="ship_l" id="[0xA]" owner="player" name="Alpha"><connections><connection connection="ships"><component class="ship_s" id="[0xB]" owner="argon" name="Docked"><component class="npc" id="[0xO1]" name="Timanckolok"><entity type="officer" post="aipilot"/><traits><skills morale="6" piloting="9"/></traits></component></component></connection></connections></component></components></savegame>`;
+  const dir = fs.mkdtempSync(path.join(process.cwd(), 'tmp-x4-'));
+  const xmlPath = path.join(dir, 'ships-all.xml');
+  fs.writeFileSync(xmlPath, xml);
+
+  const model = await buildIndex(xmlPath);
+  assert.equal(model.shipsModel.allShipIds.length, 2);
+  assert.equal(model.shipsModel.myShipIds.includes('[0xA]'), true);
+  assert.equal(model.shipsModel.allShipsById['[0xB]'].docked, true);
+  assert.equal(model.shipsModel.allShipsById['[0xB]'].officers[0].name, 'Timanckolok');
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('ChangeOwner SetShipName SetShipCode and SetOfficerSkills are idempotent', async () => {
+  const xml = `<?xml version="1.0"?><savegame><components><component class="ship_m" id="[0xS]" owner="player" name="Old" code="ABC"><component class="computer" id="[0xC]"><entity post="engineer"/><traits><skills morale="3" engineering="4"/></traits></component></component></components></savegame>`;
+  const dir = fs.mkdtempSync(path.join(process.cwd(), 'tmp-x4-'));
+  const xmlPath = path.join(dir, 'ship-edit.xml');
+  const out1 = path.join(dir, 'out1.xml');
+  const out2 = path.join(dir, 'out2.xml');
+  fs.writeFileSync(xmlPath, xml);
+
+  const patches = [
+    { type: 'ChangeOwner', objectId: '[0xS]', newOwnerFactionId: 'argon' },
+    { type: 'SetShipName', shipId: '[0xS]', name: 'Renamed' },
+    { type: 'SetShipCode', shipId: '[0xS]', code: 'XYZ' },
+    { type: 'SetOfficerSkills', officerComponentId: '[0xC]', skills: { morale: 12, engineering: 15 } }
+  ];
+  await exportPatchedSave({ sourcePath: xmlPath, outputPath: out1, patches, compress: false, createBackup: false });
+  await exportPatchedSave({ sourcePath: out1, outputPath: out2, patches, compress: false, createBackup: false });
+
+  const a = fs.readFileSync(out1, 'utf8');
+  const b = fs.readFileSync(out2, 'utf8');
+  assert.match(a, /id="\[0xS\]"[^>]*owner="argon"/);
+  assert.match(a, /id="\[0xS\]"[^>]*name="Renamed"/);
+  assert.match(a, /id="\[0xS\]"[^>]*code="XYZ"/);
+  assert.match(a, /id="\[0xC\]"[\s\S]*<skills[^>]*morale="12"[^>]*engineering="15"/);
+  assert.equal(a, b);
+
+  fs.rmSync(dir, { recursive: true, force: true });
 });
