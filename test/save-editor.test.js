@@ -509,8 +509,9 @@ test('SetNpcSkills updates attributes and node-based skills and is idempotent', 
   const second = fs.readFileSync(out2, 'utf8');
 
   assert.match(first, /id="\[0xAAA\]"[\s\S]*<skills[^>]*piloting="10"[^>]*engineering="4"/);
-  assert.match(first, /id="\[0xBBB\]"[\s\S]*<skill type="piloting" value="8">/);
-  assert.match(first, /id="\[0xBBB\]"[\s\S]*<skill type="management" value="6">/);
+  assert.match(first, /id="\[0xBBB\]"[\s\S]*<skill type="piloting" value="8"(?:\/>|><\/skill>)/);
+  assert.match(first, /id="\[0xBBB\]"[\s\S]*<skill type="management" value="6"\/>/);
+  await parseXmlString(first);
   assert.equal(first, second);
 
   fs.rmSync(dir, { recursive: true, force: true });
